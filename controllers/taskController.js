@@ -195,7 +195,10 @@ const getTask = async (req, res) => {
         const task = await Task.findById(id)
             .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('department', 'name');
+            .populate('department', 'name')
+            .populate('remarks.creator.author', 'name email role')
+            .populate('remarks.assignee.author', 'name email role')
+            .populate('remarks.general.author', 'name email role');
 
         if (!task) {
             return res.status(404).json({
