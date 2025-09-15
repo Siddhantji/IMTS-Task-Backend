@@ -83,6 +83,16 @@ router.get('/employees',
 );
 
 /**
+ * @route   GET /api/users/dropdown
+ * @desc    Get users for dropdown (simplified response)
+ * @access  Private
+ */
+router.get('/dropdown',
+    authenticateToken,
+    userController.getUsersForDropdown
+);
+
+/**
  * @route   GET /api/users/stats
  * @desc    Get user statistics
  * @access  Private
