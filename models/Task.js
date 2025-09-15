@@ -252,13 +252,6 @@ taskSchema.virtual('isOverdue').get(function() {
     return new Date() > new Date(this.deadline);
 });
 
-// Virtual for completion percentage (for group tasks)
-taskSchema.virtual('completionPercentage').get(function() {
-    if (!this.isGroupTask || !this.assignedTo.length) return 0;
-    const completedCount = this.assignedTo.filter(assignment => assignment.status === 'completed').length;
-    return Math.round((completedCount / this.assignedTo.length) * 100);
-});
-
 // Virtual for formatted time to complete
 taskSchema.virtual('formattedTimeToComplete').get(function() {
     if (!this.timeToComplete) return null;
