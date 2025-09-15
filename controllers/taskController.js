@@ -1008,6 +1008,96 @@ const downloadAttachment = async (req, res) => {
     }
 };
 
+/**
+ * Get dashboard statistics for progress cards
+ */
+const getDashboardStats = async (req, res) => {
+    try {
+        const filter = { isActive: true };
+
+        // Department-based filtering
+        if (req.user.role !== 'admin') {
+            filter.department = req.user.department._id;
+        }
+
+        // Role-based filtering for different stats
+        let createdByMeFilter = { ...filter, createdBy: req.user._id };
+        let assignedToMeFilter = { ...filter, 'assignedTo.user': req.user._id };
+        let allAccessibleFilter = { ...filter };
+
+        // For employees, they can only see tasks assigned to them or created by them
+        if (req.user.role === 'employee') {
+            allAccessibleFilter.$or = [
+                { 'assignedTo.user': req.user._id },
+                { createdBy: req.user._id }
+            ];
+        }
+
+        // Get dashboard-specific statistics
+        const [
+            // Tasks assigned to me that are not started
+            notStartedTasks,
+            // Tasks assigned to me that are in progress or completed but not approved
+            pendingTasks,
+            // Tasks assigned to me that are completed and approved
+            doneTasks
+        ] = await Promise.all([
+            // Not started (assigned to me but status is created or assigned)
+            Task.countDocuments({
+                ...assignedToMeFilter,
+                status: { $in: ['created', 'assigned'] }
+            }),
+            
+            // Pending (assigned to me and in progress or completed but not approved)
+            Task.countDocuments({
+                ...assignedToMeFilter,
+                status: { $in: ['in_progress', 'completed'] }
+            }),
+            
+            // Done (assigned to me and approved)
+            Task.countDocuments({
+                ...assignedToMeFilter,
+                status: 'approved'
+            })
+        ]);
+
+        // Calculate percentages for progress cards
+        const totalAssignedToMe = notStartedTasks + pendingTasks + doneTasks;
+        
+        const stats = {
+            notStarted: {
+                count: notStartedTasks,
+                label: 'Not Started',
+                percentage: totalAssignedToMe > 0 ? Math.round((notStartedTasks / totalAssignedToMe) * 100) : 0
+            },
+            pending: {
+                count: pendingTasks,
+                label: 'Pending',
+                percentage: totalAssignedToMe > 0 ? Math.round((pendingTasks / totalAssignedToMe) * 100) : 0
+            },
+            done: {
+                count: doneTasks,
+                label: 'Done',
+                percentage: totalAssignedToMe > 0 ? Math.round((doneTasks / totalAssignedToMe) * 100) : 0
+            },
+            totalAssigned: totalAssignedToMe
+        };
+
+        res.json({
+            success: true,
+            data: stats
+        });
+
+    } catch (error) {
+        logger.error('Get dashboard stats error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get dashboard statistics',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 module.exports = {
     createTask,
     getTasks,
@@ -1019,6 +1109,7 @@ module.exports = {
     updateTask,
     deleteTask,
     getTaskStats,
+    getDashboardStats,
     addAttachments,
     removeAttachment,
     downloadAttachment
