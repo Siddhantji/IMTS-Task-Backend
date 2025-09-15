@@ -15,7 +15,7 @@ const remarkSchema = new mongoose.Schema({
     authorRole: {
         type: String,
         required: true,
-        enum: ['giver', 'worker', 'hod', 'observer']
+        enum: ['employee', 'hod', 'admin']
     },
     createdAt: {
         type: Date,
@@ -112,21 +112,16 @@ const taskSchema = new mongoose.Schema({
         },
         default: 'planning'
     },
-    estimatedDuration: {
-        type: Number, // in hours
-        required: [true, 'Estimated duration is required'],
-        min: [0.5, 'Duration must be at least 0.5 hours']
-    },
-    actualDuration: {
-        type: Number, // in hours
-        min: [0, 'Actual duration cannot be negative']
+    timeToComplete: {
+        type: Number, // in milliseconds - calculated when task is completed
+        min: [0, 'Time to complete cannot be negative']
     },
     
     // User references
-    giver: {
+    createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: [true, 'Task giver is required']
+        required: [true, 'Task creator is required']
     },
     assignedTo: [{
         user: {
@@ -142,10 +137,6 @@ const taskSchema = new mongoose.Schema({
             enum: ['assigned', 'accepted', 'completed'],
             default: 'assigned'
         }
-    }],
-    observers: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
     }],
     
     // Department and cross-department handling
@@ -173,8 +164,8 @@ const taskSchema = new mongoose.Schema({
     // Task content
     attachments: [attachmentSchema],
     remarks: {
-        giver: [remarkSchema],
-        worker: [remarkSchema],
+        creator: [remarkSchema],
+        assignee: [remarkSchema],
         general: [remarkSchema]
     },
     
@@ -234,7 +225,7 @@ const taskSchema = new mongoose.Schema({
 });
 
 // Indexes for performance
-taskSchema.index({ giver: 1 });
+taskSchema.index({ createdBy: 1 });
 taskSchema.index({ 'assignedTo.user': 1 });
 taskSchema.index({ department: 1 });
 taskSchema.index({ status: 1 });
@@ -268,11 +259,32 @@ taskSchema.virtual('completionPercentage').get(function() {
     return Math.round((completedCount / this.assignedTo.length) * 100);
 });
 
+// Virtual for formatted time to complete
+taskSchema.virtual('formattedTimeToComplete').get(function() {
+    if (!this.timeToComplete) return null;
+    
+    const milliseconds = this.timeToComplete;
+    const days = Math.floor(milliseconds / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((milliseconds % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
+    
+    let result = '';
+    if (days > 0) result += `${days}d `;
+    if (hours > 0) result += `${hours}h `;
+    if (minutes > 0 || result === '') result += `${minutes}m`;
+    
+    return result.trim();
+});
+
 // Pre-save middleware
 taskSchema.pre('save', async function(next) {
-    // Auto-update actualDuration if task is completed
+    // Auto-update completedAt and calculate timeToComplete if task is completed
     if (this.isModified('status') && this.status === 'completed' && !this.completedAt) {
         this.completedAt = new Date();
+        // Calculate time to complete in milliseconds from startDate to completedAt
+        if (this.startDate) {
+            this.timeToComplete = this.completedAt.getTime() - this.startDate.getTime();
+        }
     }
     
     // Auto-update approvedAt if task is approved
@@ -353,6 +365,10 @@ taskSchema.methods.updateStage = function(newStage) {
         if (newStage === 'completed') {
             this.status = 'completed';
             this.completedAt = new Date();
+            // Calculate time to complete in milliseconds from startDate to completedAt
+            if (this.startDate) {
+                this.timeToComplete = this.completedAt.getTime() - this.startDate.getTime();
+            }
         }
         
         return this.save();
@@ -365,10 +381,8 @@ taskSchema.methods.updateStage = function(newStage) {
 taskSchema.statics.findByUser = function(userId, role = 'assignedTo') {
     if (role === 'assignedTo') {
         return this.find({ 'assignedTo.user': userId });
-    } else if (role === 'giver') {
-        return this.find({ giver: userId });
-    } else if (role === 'observer') {
-        return this.find({ observers: userId });
+    } else if (role === 'creator') {
+        return this.find({ createdBy: userId });
     }
 };
 
