@@ -1,5 +1,8 @@
 const { Task, TaskHistory, User, Notification } = require('../models');
 const { logger } = require('../utils/logger');
+const upload = require('../config/upload');
+const path = require('path');
+const fs = require('fs');
 
 /**
  * Create a new task
@@ -17,6 +20,16 @@ const createTask = async (req, res) => {
             tags
         } = req.body;
 
+        // Process file attachments
+        const attachments = req.files ? req.files.map(file => ({
+            filename: file.filename,
+            originalName: file.originalname,
+            path: path.relative(path.join(__dirname, '../'), file.path),
+            size: file.size,
+            mimetype: file.mimetype,
+            uploadedBy: req.user._id
+        })) : [];
+
         // Create new task
         const task = new Task({
             title,
@@ -28,7 +41,8 @@ const createTask = async (req, res) => {
             department: req.user.department._id,
             assignedTo: assignedTo ? assignedTo.map(userId => ({ user: userId })) : [],
             observers: observers || [],
-            tags: tags || []
+            tags: tags || [],
+            attachments
         });
 
         await task.save();
@@ -38,7 +52,10 @@ const createTask = async (req, res) => {
             task._id,
             'created',
             req.user._id,
-            { description: 'Task created' }
+            { 
+                description: 'Task created',
+                attachmentCount: attachments.length
+            }
         );
 
         // Send notifications to assigned users
@@ -588,6 +605,64 @@ const updateTask = async (req, res) => {
             task.tags = tags;
         }
 
+        // Process new file attachments
+        if (req.files && req.files.length > 0) {
+            const newAttachments = req.files.map(file => ({
+                filename: file.filename,
+                originalName: file.originalname,
+                path: path.relative(path.join(__dirname, '../'), file.path),
+                size: file.size,
+                mimetype: file.mimetype,
+                uploadedBy: req.user._id
+            }));
+            
+            task.attachments.push(...newAttachments);
+            changes.push({
+                field: 'attachments_added',
+                newValue: newAttachments.length,
+                attachments: newAttachments.map(att => att.originalName)
+            });
+        }
+
+        // Handle attachment removal
+        const { removeAttachments } = req.body;
+        if (removeAttachments && removeAttachments.length > 0) {
+            const removedAttachments = [];
+            
+            for (const attachmentId of removeAttachments) {
+                const attachmentIndex = task.attachments.findIndex(
+                    att => att._id.toString() === attachmentId
+                );
+                
+                if (attachmentIndex !== -1) {
+                    const attachment = task.attachments[attachmentIndex];
+                    
+                    // Check permissions - only uploader, task giver, or HOD can delete
+                    if (attachment.uploadedBy.toString() === req.user._id.toString() ||
+                        task.giver.toString() === req.user._id.toString() ||
+                        req.user.role === 'hod') {
+                        
+                        // Delete file from filesystem
+                        const filePath = path.join(__dirname, '../', attachment.path);
+                        if (fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                        
+                        removedAttachments.push(attachment.originalName);
+                        task.attachments.splice(attachmentIndex, 1);
+                    }
+                }
+            }
+            
+            if (removedAttachments.length > 0) {
+                changes.push({
+                    field: 'attachments_removed',
+                    newValue: removedAttachments.length,
+                    attachments: removedAttachments
+                });
+            }
+        }
+
         await task.save();
 
         // Create history entries for each change
@@ -595,7 +670,9 @@ const updateTask = async (req, res) => {
             await TaskHistory.createEntry(
                 task._id,
                 change.field === 'deadline' ? 'deadline_changed' : 
-                change.field === 'priority' ? 'priority_changed' : 'updated',
+                change.field === 'priority' ? 'priority_changed' : 
+                change.field === 'attachments_added' ? 'attachments_added' : 
+                change.field === 'attachments_removed' ? 'attachments_removed' : 'updated',
                 req.user._id,
                 change
             );
@@ -736,6 +813,205 @@ const getTaskStats = async (req, res) => {
     }
 };
 
+/**
+ * Add attachments to existing task
+ */
+const addAttachments = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No files provided'
+            });
+        }
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Process attachments
+        const newAttachments = req.files.map(file => ({
+            filename: file.filename,
+            originalName: file.originalname,
+            path: path.relative(path.join(__dirname, '../'), file.path),
+            size: file.size,
+            mimetype: file.mimetype,
+            uploadedBy: req.user._id
+        }));
+
+        task.attachments.push(...newAttachments);
+        await task.save();
+
+        // Create task history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'attachments_added',
+            req.user._id,
+            {
+                description: `Added ${newAttachments.length} attachment(s)`,
+                attachments: newAttachments.map(att => att.originalName)
+            }
+        );
+
+        // Generate file URLs for response
+        const attachmentsWithUrls = newAttachments.map(attachment => ({
+            ...attachment.toObject ? attachment.toObject() : attachment,
+            url: upload.getFileUrl(req, attachment.path)
+        }));
+
+        res.status(201).json({
+            success: true,
+            message: 'Attachments added successfully',
+            data: {
+                attachments: attachmentsWithUrls,
+                count: newAttachments.length
+            }
+        });
+
+    } catch (error) {
+        logger.error('Add attachments error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to add attachments',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Remove attachment from task
+ */
+const removeAttachment = async (req, res) => {
+    try {
+        const { id, attachmentId } = req.params;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const attachmentIndex = task.attachments.findIndex(
+            att => att._id.toString() === attachmentId
+        );
+
+        if (attachmentIndex === -1) {
+            return res.status(404).json({
+                success: false,
+                message: 'Attachment not found'
+            });
+        }
+
+        const attachment = task.attachments[attachmentIndex];
+
+        // Check permissions - only uploader, task giver, or HOD can delete
+        if (attachment.uploadedBy.toString() !== req.user._id.toString() &&
+            task.giver.toString() !== req.user._id.toString() &&
+            req.user.role !== 'hod') {
+            return res.status(403).json({
+                success: false,
+                message: 'Not authorized to delete this attachment'
+            });
+        }
+
+        // Delete file from filesystem
+        const filePath = path.join(__dirname, '../', attachment.path);
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        // Remove from task
+        task.attachments.splice(attachmentIndex, 1);
+        await task.save();
+
+        // Create task history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'attachment_removed',
+            req.user._id,
+            {
+                description: `Removed attachment: ${attachment.originalName}`,
+                attachmentName: attachment.originalName
+            }
+        );
+
+        res.json({
+            success: true,
+            message: 'Attachment removed successfully'
+        });
+
+    } catch (error) {
+        logger.error('Remove attachment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to remove attachment',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Download task attachment
+ */
+const downloadAttachment = async (req, res) => {
+    try {
+        const { id, attachmentId } = req.params;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const attachment = task.attachments.find(
+            att => att._id.toString() === attachmentId
+        );
+
+        if (!attachment) {
+            return res.status(404).json({
+                success: false,
+                message: 'Attachment not found'
+            });
+        }
+
+        const filePath = path.join(__dirname, '../', attachment.path);
+        
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({
+                success: false,
+                message: 'File not found on server'
+            });
+        }
+
+        // Set appropriate headers
+        res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName}"`);
+        res.setHeader('Content-Type', attachment.mimetype);
+        res.setHeader('Content-Length', attachment.size);
+
+        // Stream the file
+        const fileStream = fs.createReadStream(filePath);
+        fileStream.pipe(res);
+
+    } catch (error) {
+        logger.error('Download attachment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to download attachment',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 module.exports = {
     createTask,
     getTasks,
@@ -746,5 +1022,8 @@ module.exports = {
     assignTask,
     updateTask,
     deleteTask,
-    getTaskStats
+    getTaskStats,
+    addAttachments,
+    removeAttachment,
+    downloadAttachment
 };
