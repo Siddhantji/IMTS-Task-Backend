@@ -1,6 +1,7 @@
 const { Task, TaskHistory, User, Notification } = require('../models');
 const { logger } = require('../utils/logger');
 const upload = require('../config/upload');
+const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
 
@@ -1021,6 +1022,65 @@ const downloadAttachment = async (req, res) => {
 };
 
 /**
+ * View task attachment in browser (for PDFs) - PUBLIC ROUTE
+ */
+const viewAttachmentPublic = async (req, res) => {
+    try {
+        const { id, attachmentId } = req.params;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const attachment = task.attachments.find(
+            att => att._id.toString() === attachmentId
+        );
+
+        if (!attachment) {
+            return res.status(404).json({
+                success: false,
+                message: 'Attachment not found'
+            });
+        }
+
+        const filePath = path.join(__dirname, '../', attachment.path);
+        
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({
+                success: false,
+                message: 'File not found on server'
+            });
+        }
+
+        // Set headers for inline viewing (especially for PDFs)
+        res.setHeader('Content-Disposition', `inline; filename="${attachment.originalName}"`);
+        res.setHeader('Content-Type', attachment.mimetype);
+        res.setHeader('Content-Length', attachment.size);
+        
+        // Add CORS headers to allow browser access
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+        // Stream the file
+        const fileStream = fs.createReadStream(filePath);
+        fileStream.pipe(res);
+
+    } catch (error) {
+        logger.error('View attachment public error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to view attachment',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
  * Get dashboard statistics for progress cards
  */
 const getDashboardStats = async (req, res) => {
@@ -1124,5 +1184,6 @@ module.exports = {
     getDashboardStats,
     addAttachments,
     removeAttachment,
-    downloadAttachment
+    downloadAttachment,
+    viewAttachmentPublic
 };
