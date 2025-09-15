@@ -35,8 +35,8 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Role is required'],
         enum: {
-            values: ['worker', 'giver', 'hod', 'observer'],
-            message: 'Role must be either worker, giver, hod, or observer'
+            values: ['employee', 'hod', 'admin'],
+            message: 'Role must be either employee, hod, or admin'
         }
     },
     department: {
@@ -78,10 +78,9 @@ userSchema.virtual('displayName').get(function() {
 // Virtual for role permissions
 userSchema.virtual('permissions').get(function() {
     const rolePermissions = {
-        worker: ['view_assigned_tasks', 'update_task_status', 'add_remarks'],
-        giver: ['create_tasks', 'assign_tasks', 'approve_tasks', 'view_department_tasks'],
-        hod: ['approve_transfers', 'view_all_department_tasks', 'manage_department'],
-        observer: ['view_tasks']
+        employee: ['view_assigned_tasks', 'update_task_status', 'add_remarks'],
+        hod: ['create_tasks', 'assign_tasks', 'approve_tasks', 'view_department_tasks', 'manage_department'],
+        admin: ['full_access', 'manage_users', 'manage_departments', 'view_all_tasks']
     };
     return rolePermissions[this.role] || [];
 });
@@ -143,10 +142,11 @@ userSchema.methods.hasPermission = function(permission) {
 
 // Instance method to check if user can access department
 userSchema.methods.canAccessDepartment = function(departmentId) {
+    // Admin can access all departments
+    if (this.role === 'admin') return true;
     // HODs can access their own department
-    // Givers can access their own department
-    // Workers can access their own department
-    // Observers can access their own department
+    if (this.role === 'hod') return this.department.toString() === departmentId.toString();
+    // Employees can access their own department
     return this.department.toString() === departmentId.toString();
 };
 
