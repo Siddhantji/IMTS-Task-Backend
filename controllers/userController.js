@@ -20,24 +20,14 @@ const getUsers = async (req, res) => {
         // Build filter query
         const filter = {};
 
-        // Only HODs can view users from other departments
-        if (req.user.role !== 'hod' && department && department !== req.user.department._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'Cannot access users from other departments'
-            });
-        }
-
-        // If not HOD, limit to own department
-        if (req.user.role !== 'hod') {
-            filter.department = req.user.department._id;
-        } else if (department) {
-            filter.department = department;
-        }
-
         // Other filters
         if (role) filter.role = role;
         if (isActive !== undefined) filter.isActive = isActive === 'true';
+
+        // If departmentId provided, filter by it
+        if (department) {
+            filter.department = department;
+        }
 
         // Search functionality
         if (search) {
@@ -106,7 +96,7 @@ const getUser = async (req, res) => {
         }
 
         // Check if user can access this user's info
-        if (req.user.role !== 'hod' && 
+        if (req.user.role !== 'hod' && req.user.role !== 'admin' && 
             user.department._id.toString() !== req.user.department._id.toString() &&
             user._id.toString() !== req.user._id.toString()) {
             return res.status(403).json({
@@ -288,79 +278,37 @@ const transferUser = async (req, res) => {
 };
 
 /**
- * Get workers for task assignment
+ * Get all employees (for task assignment and general use)
  */
-const getWorkers = async (req, res) => {
+const getAllEmployees = async (req, res) => {
     try {
         const { departmentId } = req.query;
 
-        // Build filter for workers
+        // Build filter for all active users
         const filter = { 
-            role: 'worker', 
             isActive: true 
         };
 
         // If departmentId provided, filter by it
         if (departmentId) {
             filter.department = departmentId;
-        } else if (req.user.role !== 'hod') {
-            // If not HOD and no department specified, use user's department
-            filter.department = req.user.department._id;
         }
 
-        const workers = await User.find(filter)
+        const employees = await User.find(filter)
             .populate('department', 'name')
             .select('name email department role')
             .sort({ name: 1 });
 
         res.json({
             success: true,
-            data: { workers }
+            data: employees
         });
 
     } catch (error) {
-        logger.error('Get workers error:', error);
+        logger.error('Get all employees error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to get workers',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-/**
- * Get task givers
- */
-const getTaskGivers = async (req, res) => {
-    try {
-        const { departmentId } = req.query;
-
-        const filter = { 
-            role: { $in: ['giver', 'hod'] }, 
-            isActive: true 
-        };
-
-        if (departmentId) {
-            filter.department = departmentId;
-        } else if (req.user.role !== 'hod') {
-            filter.department = req.user.department._id;
-        }
-
-        const givers = await User.find(filter)
-            .populate('department', 'name')
-            .select('name email department role')
-            .sort({ name: 1 });
-
-        res.json({
-            success: true,
-            data: { givers }
-        });
-
-    } catch (error) {
-        logger.error('Get task givers error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to get task givers',
+            message: 'Failed to get employees',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -373,8 +321,8 @@ const getUserStats = async (req, res) => {
     try {
         const filter = {};
 
-        // If not HOD, limit to own department
-        if (req.user.role !== 'hod') {
+        // If not HOD or admin, limit to own department
+        if (req.user.role !== 'hod' && req.user.role !== 'admin') {
             filter.department = req.user.department._id;
         }
 
@@ -386,10 +334,9 @@ const getUserStats = async (req, res) => {
                     total: { $sum: 1 },
                     active: { $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] } },
                     inactive: { $sum: { $cond: [{ $eq: ['$isActive', false] }, 1, 0] } },
-                    workers: { $sum: { $cond: [{ $eq: ['$role', 'worker'] }, 1, 0] } },
-                    givers: { $sum: { $cond: [{ $eq: ['$role', 'giver'] }, 1, 0] } },
+                    employees: { $sum: { $cond: [{ $eq: ['$role', 'employee'] }, 1, 0] } },
                     hods: { $sum: { $cond: [{ $eq: ['$role', 'hod'] }, 1, 0] } },
-                    observers: { $sum: { $cond: [{ $eq: ['$role', 'observer'] }, 1, 0] } }
+                    admins: { $sum: { $cond: [{ $eq: ['$role', 'admin'] }, 1, 0] } }
                 }
             }
         ]);
@@ -400,10 +347,9 @@ const getUserStats = async (req, res) => {
                 total: 0,
                 active: 0,
                 inactive: 0,
-                workers: 0,
-                givers: 0,
+                employees: 0,
                 hods: 0,
-                observers: 0
+                admins: 0
             }
         });
 
@@ -448,8 +394,7 @@ module.exports = {
     updateUserRole,
     toggleUserStatus,
     transferUser,
-    getWorkers,
-    getTaskGivers,
+    getAllEmployees,
     getUserStats,
     getDepartments
 };
