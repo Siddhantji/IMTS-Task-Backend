@@ -29,8 +29,8 @@ const registerValidation = [
         .matches(/^\d{10}$/)
         .withMessage('Phone number must be exactly 10 digits'),
     body('role')
-        .isIn(['worker', 'giver', 'hod', 'observer'])
-        .withMessage('Role must be worker, giver, hod, or observer'),
+        .isIn(['employee', 'hod', 'admin'])
+        .withMessage('Role must be employee, hod, or admin'),
     body('departmentId')
         .isMongoId()
         .withMessage('Valid department ID is required')
