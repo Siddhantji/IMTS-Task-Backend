@@ -131,7 +131,25 @@ const taskSchema = new mongoose.Schema({
         assignedAt: {
             type: Date,
             default: Date.now
-        }
+        },
+        individualStage: {
+            type: String,
+            enum: {
+                values: ['planning', 'pending', 'done'],
+                message: 'Invalid individual stage value'
+            },
+            default: 'planning'
+        },
+        status: {
+            type: String,
+            enum: {
+                values: ['assigned', 'in_progress', 'completed', 'blocked'],
+                message: 'Invalid assignment status value'
+            },
+            default: 'assigned'
+        },
+        completedAt: Date,
+        notes: String // For individual notes/remarks specific to this assignee
     }],
     
     // Department and cross-department handling
