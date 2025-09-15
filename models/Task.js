@@ -98,7 +98,7 @@ const taskSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: {
-            values: ['created', 'assigned', 'in_progress', 'completed', 'approved', 'rejected', 'transferred'],
+            values: ['approved', 'rejected', 'transferred'],
             message: 'Invalid status value'
         },
         default: 'created'
@@ -107,7 +107,7 @@ const taskSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: {
-            values: ['planning', 'development', 'testing', 'review', 'deployment', 'completed'],
+            values: ['pending','done'],
             message: 'Invalid stage value'
         },
         default: 'planning'
@@ -131,11 +131,6 @@ const taskSchema = new mongoose.Schema({
         assignedAt: {
             type: Date,
             default: Date.now
-        },
-        status: {
-            type: String,
-            enum: ['assigned', 'accepted', 'completed'],
-            default: 'assigned'
         }
     }],
     
