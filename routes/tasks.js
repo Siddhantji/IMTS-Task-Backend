@@ -203,6 +203,16 @@ router.get('/stats',
 );
 
 /**
+ * @route   GET /api/tasks/dashboard-stats
+ * @desc    Get dashboard statistics for progress cards
+ * @access  Private
+ */
+router.get('/dashboard-stats',
+    authenticateToken,
+    taskController.getDashboardStats
+);
+
+/**
  * @route   GET /api/tasks/:id
  * @desc    Get single task by ID
  * @access  Private
