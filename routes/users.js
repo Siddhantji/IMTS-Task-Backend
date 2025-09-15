@@ -6,15 +6,14 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const { 
     authenticateToken, 
-    authorizeRoles,
     handleValidationErrors 
 } = require('../middleware');
 
 // Validation rules
 const updateRoleValidation = [
     body('role')
-        .isIn(['worker', 'giver', 'hod', 'observer'])
-        .withMessage('Role must be worker, giver, hod, or observer')
+        .isIn(['employee', 'hod', 'admin'])
+        .withMessage('Role must be employee, hod, or admin')
 ];
 
 const transferUserValidation = [
@@ -40,7 +39,7 @@ const queryValidation = [
         .withMessage('Limit must be between 1 and 100'),
     query('role')
         .optional()
-        .isIn(['worker', 'giver', 'hod', 'observer'])
+        .isIn(['employee', 'hod', 'admin'])
         .withMessage('Invalid role filter'),
     query('departmentId')
         .optional()
@@ -61,6 +60,16 @@ router.get('/',
 );
 
 /**
+ * @route   GET /api/users/employees
+ * @desc    Get all employees (with optional department filter)
+ * @access  Private
+ */
+router.get('/employees',
+    authenticateToken,
+    userController.getAllEmployees
+);
+
+/**
  * @route   GET /api/users/stats
  * @desc    Get user statistics
  * @access  Private
@@ -68,27 +77,6 @@ router.get('/',
 router.get('/stats',
     authenticateToken,
     userController.getUserStats
-);
-
-/**
- * @route   GET /api/users/workers
- * @desc    Get workers for task assignment
- * @access  Private (Giver, HOD)
- */
-router.get('/workers',
-    authenticateToken,
-    authorizeRoles('giver', 'hod'),
-    userController.getWorkers
-);
-
-/**
- * @route   GET /api/users/givers
- * @desc    Get task givers
- * @access  Private
- */
-router.get('/givers',
-    authenticateToken,
-    userController.getTaskGivers
 );
 
 /**
@@ -106,11 +94,10 @@ router.get('/:id',
 /**
  * @route   PUT /api/users/:id/role
  * @desc    Update user role
- * @access  Private (HOD only)
+ * @access  Private
  */
 router.put('/:id/role',
     authenticateToken,
-    authorizeRoles('hod'),
     mongoIdValidation,
     updateRoleValidation,
     handleValidationErrors,
@@ -120,11 +107,10 @@ router.put('/:id/role',
 /**
  * @route   PUT /api/users/:id/status
  * @desc    Toggle user active/inactive status
- * @access  Private (HOD only)
+ * @access  Private
  */
 router.put('/:id/status',
     authenticateToken,
-    authorizeRoles('hod'),
     mongoIdValidation,
     handleValidationErrors,
     userController.toggleUserStatus
@@ -133,11 +119,10 @@ router.put('/:id/status',
 /**
  * @route   PUT /api/users/:id/transfer
  * @desc    Transfer user to different department
- * @access  Private (HOD only)
+ * @access  Private
  */
 router.put('/:id/transfer',
     authenticateToken,
-    authorizeRoles('hod'),
     mongoIdValidation,
     transferUserValidation,
     handleValidationErrors,
