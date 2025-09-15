@@ -7,8 +7,6 @@ const taskController = require('../controllers/taskController');
 const upload = require('../config/upload');
 const { 
     authenticateToken, 
-    authorizeRoles,
-    authorizeTaskAccess,
     handleValidationErrors 
 } = require('../middleware');
 
@@ -34,9 +32,6 @@ const createTaskValidation = [
     body('priority')
         .isIn(['low', 'medium', 'high', 'urgent'])
         .withMessage('Priority must be low, medium, high, or urgent'),
-    body('estimatedDuration')
-        .isFloat({ min: 0.5 })
-        .withMessage('Estimated duration must be at least 0.5 hours'),
     body('assignedTo')
         .optional()
         .isArray()
@@ -92,11 +87,7 @@ const updateTaskValidation = [
     body('priority')
         .optional()
         .isIn(['low', 'medium', 'high', 'urgent'])
-        .withMessage('Priority must be low, medium, high, or urgent'),
-    body('estimatedDuration')
-        .optional()
-        .isFloat({ min: 0.5 })
-        .withMessage('Estimated duration must be at least 0.5 hours')
+        .withMessage('Priority must be low, medium, high, or urgent')
 ];
 
 const updateStatusValidation = [
@@ -178,11 +169,10 @@ const queryValidation = [
 /**
  * @route   POST /api/tasks
  * @desc    Create a new task
- * @access  Private (Giver, HOD)
+ * @access  Private (Any authenticated user can create tasks)
  */
 router.post('/',
     authenticateToken,
-    authorizeRoles('giver', 'hod'),
     upload.multiple('attachments', 5),
     upload.errorHandler,
     createTaskValidation,
@@ -221,7 +211,6 @@ router.get('/:id',
     authenticateToken,
     mongoIdValidation,
     handleValidationErrors,
-    authorizeTaskAccess('read'),
     taskController.getTask
 );
 
@@ -237,8 +226,6 @@ router.put('/:id',
     upload.errorHandler,
     updateTaskValidation,
     handleValidationErrors,
-    authorizeTaskAccess('modify'),
-    authorizeRoles('giver', 'hod'),
     taskController.updateTask
 );
 
@@ -252,7 +239,6 @@ router.put('/:id/status',
     mongoIdValidation,
     updateStatusValidation,
     handleValidationErrors,
-    authorizeTaskAccess('modify'),
     taskController.updateTaskStatus
 );
 
@@ -266,8 +252,6 @@ router.put('/:id/stage',
     mongoIdValidation,
     updateStageValidation,
     handleValidationErrors,
-    authorizeTaskAccess('modify'),
-    authorizeRoles('worker', 'giver', 'hod'),
     taskController.updateTaskStage
 );
 
@@ -281,7 +265,6 @@ router.post('/:id/remarks',
     mongoIdValidation,
     addRemarkValidation,
     handleValidationErrors,
-    authorizeTaskAccess('read'),
     taskController.addRemark
 );
 
@@ -295,8 +278,6 @@ router.put('/:id/assign',
     mongoIdValidation,
     assignTaskValidation,
     handleValidationErrors,
-    authorizeTaskAccess('modify'),
-    authorizeRoles('giver', 'hod'),
     taskController.assignTask
 );
 
@@ -309,8 +290,6 @@ router.delete('/:id',
     authenticateToken,
     mongoIdValidation,
     handleValidationErrors,
-    authorizeTaskAccess('modify'),
-    authorizeRoles('giver', 'hod'),
     taskController.deleteTask
 );
 
@@ -325,7 +304,6 @@ router.post('/:id/attachments',
     authenticateToken,
     mongoIdValidation,
     handleValidationErrors,
-    authorizeTaskAccess('view'),
     upload.multiple('attachments', 5),
     upload.errorHandler,
     taskController.addAttachments
@@ -341,7 +319,6 @@ router.delete('/:id/attachments/:attachmentId',
     mongoIdValidation,
     param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
     handleValidationErrors,
-    authorizeTaskAccess('view'),
     taskController.removeAttachment
 );
 
@@ -355,7 +332,6 @@ router.get('/:id/attachments/:attachmentId/download',
     mongoIdValidation,
     param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
     handleValidationErrors,
-    authorizeTaskAccess('view'),
     taskController.downloadAttachment
 );
 
