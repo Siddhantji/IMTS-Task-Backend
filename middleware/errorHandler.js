@@ -107,8 +107,8 @@ const createRateLimit = (windowMs = 15 * 60 * 1000, max = 100, message = 'Too ma
 };
 
 // Specific rate limits for different endpoints
-const authRateLimit = createRateLimit(15 * 60 * 1000, 5, 'Too many authentication attempts');
-const apiRateLimit = createRateLimit(15 * 60 * 1000, 100, 'Too many API requests');
+const authRateLimit = createRateLimit(15 * 60 * 1000, 50, 'Too many authentication attempts');
+const apiRateLimit = createRateLimit(1 * 60 * 1000, 1000, 'Too many API requests'); // 1000 requests per minute for development
 
 module.exports = {
     handleValidationErrors,
