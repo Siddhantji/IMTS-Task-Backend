@@ -14,6 +14,8 @@ const { errorHandler, notFound, apiRateLimit } = require('./middleware');
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const taskRoutes = require('./routes/tasks');
+const userRoutes = require('./routes/users');
 
 // Create Express app
 const app = express();
@@ -84,8 +86,6 @@ app.get('/api', (req, res) => {
         documentation: {
             authentication: '/api/auth',
             tasks: '/api/tasks',
-            departments: '/api/departments',
-            notifications: '/api/notifications',
             users: '/api/users'
         },
         endpoints: {
@@ -99,6 +99,28 @@ app.get('/api', (req, res) => {
                 refreshToken: 'POST /api/auth/refresh-token',
                 logout: 'POST /api/auth/logout',
                 logoutAll: 'POST /api/auth/logout-all'
+            },
+            tasks: {
+                createTask: 'POST /api/tasks',
+                getTasks: 'GET /api/tasks',
+                getTask: 'GET /api/tasks/:id',
+                updateTask: 'PUT /api/tasks/:id',
+                updateStatus: 'PUT /api/tasks/:id/status',
+                updateStage: 'PUT /api/tasks/:id/stage',
+                addRemark: 'POST /api/tasks/:id/remarks',
+                assignTask: 'PUT /api/tasks/:id/assign',
+                deleteTask: 'DELETE /api/tasks/:id',
+                getStats: 'GET /api/tasks/stats'
+            },
+            users: {
+                getUsers: 'GET /api/users',
+                getUser: 'GET /api/users/:id',
+                getWorkers: 'GET /api/users/workers',
+                getGivers: 'GET /api/users/givers',
+                updateRole: 'PUT /api/users/:id/role',
+                toggleStatus: 'PUT /api/users/:id/status',
+                transferUser: 'PUT /api/users/:id/transfer',
+                getStats: 'GET /api/users/stats'
             }
         }
     });
@@ -106,6 +128,8 @@ app.get('/api', (req, res) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/users', userRoutes);
 
 // Handle 404 routes
 app.use(notFound);
