@@ -97,7 +97,7 @@ const login = async (req, res) => {
         // Find user with password field
         const user = await User.findByEmail(email)
             .select('+password')
-            .populate('department', 'name code');
+            .populate('department', 'name');
         
         if (!user) {
             return res.status(401).json({
@@ -173,7 +173,7 @@ const login = async (req, res) => {
 const getProfile = async (req, res) => {
     try {
         const user = await User.findById(req.user._id)
-            .populate('department', 'name code description')
+            .populate('department', 'name')
             .select('-password -refreshTokens');
         
         if (!user) {
@@ -217,7 +217,7 @@ const updateProfile = async (req, res) => {
                 new: true, 
                 runValidators: true 
             }
-        ).populate('department', 'name code').select('-password -refreshTokens');
+        ).populate('department', 'name').select('-password -refreshTokens');
         
         if (!user) {
             return res.status(404).json({
