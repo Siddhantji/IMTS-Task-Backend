@@ -115,8 +115,7 @@ app.get('/api', (req, res) => {
             users: {
                 getUsers: 'GET /api/users',
                 getUser: 'GET /api/users/:id',
-                getWorkers: 'GET /api/users/workers',
-                getGivers: 'GET /api/users/givers',
+                getAllEmployees: 'GET /api/users/employees',
                 updateRole: 'PUT /api/users/:id/role',
                 toggleStatus: 'PUT /api/users/:id/status',
                 transferUser: 'PUT /api/users/:id/transfer',
