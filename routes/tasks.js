@@ -4,6 +4,7 @@ const router = express.Router();
 
 // Import controllers and middleware
 const taskController = require('../controllers/taskController');
+const upload = require('../config/upload');
 const { 
     authenticateToken, 
     authorizeRoles,
@@ -55,7 +56,16 @@ const createTaskValidation = [
     body('tags')
         .optional()
         .isArray()
-        .withMessage('Tags must be an array')
+        .withMessage('Tags must be an array'),
+    // Custom validation for file attachments (handled by multer middleware)
+    body('removeAttachments')
+        .optional()
+        .isArray()
+        .withMessage('Remove attachments must be an array of attachment IDs'),
+    body('removeAttachments.*')
+        .optional()
+        .isMongoId()
+        .withMessage('Each attachment ID must be valid')
 ];
 
 const updateTaskValidation = [
@@ -173,6 +183,8 @@ const queryValidation = [
 router.post('/',
     authenticateToken,
     authorizeRoles('giver', 'hod'),
+    upload.multiple('attachments', 5),
+    upload.errorHandler,
     createTaskValidation,
     handleValidationErrors,
     taskController.createTask
@@ -221,6 +233,8 @@ router.get('/:id',
 router.put('/:id',
     authenticateToken,
     mongoIdValidation,
+    upload.multiple('attachments', 5),
+    upload.errorHandler,
     updateTaskValidation,
     handleValidationErrors,
     authorizeTaskAccess('modify'),
@@ -298,6 +312,51 @@ router.delete('/:id',
     authorizeTaskAccess('modify'),
     authorizeRoles('giver', 'hod'),
     taskController.deleteTask
+);
+
+// ==================== FILE ATTACHMENT ENDPOINTS ====================
+
+/**
+ * @route   POST /api/tasks/:id/attachments
+ * @desc    Add attachments to existing task
+ * @access  Private (Assignee, Giver, HOD)
+ */
+router.post('/:id/attachments',
+    authenticateToken,
+    mongoIdValidation,
+    handleValidationErrors,
+    authorizeTaskAccess('view'),
+    upload.multiple('attachments', 5),
+    upload.errorHandler,
+    taskController.addAttachments
+);
+
+/**
+ * @route   DELETE /api/tasks/:id/attachments/:attachmentId
+ * @desc    Remove attachment from task
+ * @access  Private (Uploader, Giver, HOD)
+ */
+router.delete('/:id/attachments/:attachmentId',
+    authenticateToken,
+    mongoIdValidation,
+    param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
+    handleValidationErrors,
+    authorizeTaskAccess('view'),
+    taskController.removeAttachment
+);
+
+/**
+ * @route   GET /api/tasks/:id/attachments/:attachmentId/download
+ * @desc    Download task attachment
+ * @access  Private (Task participants)
+ */
+router.get('/:id/attachments/:attachmentId/download',
+    authenticateToken,
+    mongoIdValidation,
+    param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
+    handleValidationErrors,
+    authorizeTaskAccess('view'),
+    taskController.downloadAttachment
 );
 
 module.exports = router;
