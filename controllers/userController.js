@@ -315,6 +315,68 @@ const getAllEmployees = async (req, res) => {
 };
 
 /**
+ * Get users for dropdown (simplified response for UI components)
+ */
+const getUsersForDropdown = async (req, res) => {
+    try {
+        const {
+            search,
+            departmentId,
+            limit = 50
+        } = req.query;
+
+        // Build filter for active users only
+        const filter = { 
+            isActive: true 
+        };
+
+        // If departmentId provided, filter by it
+        if (departmentId) {
+            filter.department = departmentId;
+        }
+
+        // Search functionality
+        if (search && search.trim()) {
+            filter.$or = [
+                { name: { $regex: search.trim(), $options: 'i' } },
+                { email: { $regex: search.trim(), $options: 'i' } }
+            ];
+        }
+
+        const users = await User.find(filter)
+            .populate('department', 'name')
+            .select('name email department role')
+            .sort({ name: 1 })
+            .limit(parseInt(limit));
+
+        // Format data specifically for dropdown use
+        const dropdownData = users.map(user => ({
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            department: user.department?.name || 'No Department',
+            role: user.role,
+            displayName: `${user.name} (${user.email})`,
+            searchableText: `${user.name} ${user.email} ${user.department?.name || ''}`
+        }));
+
+        res.json({
+            success: true,
+            data: dropdownData,
+            count: dropdownData.length
+        });
+
+    } catch (error) {
+        logger.error('Get users for dropdown error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get users for dropdown',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
  * Get user statistics
  */
 const getUserStats = async (req, res) => {
@@ -395,6 +457,7 @@ module.exports = {
     toggleUserStatus,
     transferUser,
     getAllEmployees,
+    getUsersForDropdown,
     getUserStats,
     getDepartments
 };
