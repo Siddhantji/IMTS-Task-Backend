@@ -345,4 +345,16 @@ router.get('/:id/attachments/:attachmentId/download',
     taskController.downloadAttachment
 );
 
+/**
+ * @route   GET /api/tasks/:id/attachments/:attachmentId/view
+ * @desc    View task attachment in browser (for PDFs) - PUBLIC ROUTE
+ * @access  Public (No authentication required for viewing)
+ */
+router.get('/:id/attachments/:attachmentId/view',
+    mongoIdValidation,
+    param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
+    handleValidationErrors,
+    taskController.viewAttachmentPublic
+);
+
 module.exports = router;
