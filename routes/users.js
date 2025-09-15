@@ -144,4 +144,15 @@ router.put('/:id/transfer',
     userController.transferUser
 );
 
+// ==================== DEPARTMENT ENDPOINTS ====================
+
+/**
+ * @route   GET /api/users/departments
+ * @desc    Get all active departments
+ * @access  Public
+ */
+router.get('/departments',
+    userController.getDepartments
+);
+
 module.exports = router;
