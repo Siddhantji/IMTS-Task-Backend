@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { logger } = require('../utils/logger');
+const { seedDepartments, checkDepartmentsExist } = require('../utils/seedDepartments');
 
 const connectDB = async () => {
     try {
@@ -9,6 +10,20 @@ const connectDB = async () => {
         });
 
         logger.info(`MongoDB Connected: ${conn.connection.host}`);
+        
+        // Seed default departments if they don't exist
+        try {
+            const departmentsExist = await checkDepartmentsExist();
+            if (!departmentsExist) {
+                logger.info('No departments found. Seeding default departments...');
+                await seedDepartments();
+            } else {
+                logger.info('Default departments already exist');
+            }
+        } catch (seedError) {
+            logger.error('Error seeding departments:', seedError);
+            // Don't exit the process if seeding fails, just log the error
+        }
         
         // Handle connection events
         mongoose.connection.on('error', (err) => {
