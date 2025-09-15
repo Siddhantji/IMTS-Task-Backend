@@ -19,6 +19,26 @@ const createTask = async (req, res) => {
             tags
         } = req.body;
 
+        // Parse assignedTo and tags if they come as JSON strings (from FormData)
+        let parsedAssignedTo = assignedTo;
+        let parsedTags = tags;
+
+        if (typeof assignedTo === 'string') {
+            try {
+                parsedAssignedTo = JSON.parse(assignedTo);
+            } catch (e) {
+                parsedAssignedTo = [];
+            }
+        }
+
+        if (typeof tags === 'string') {
+            try {
+                parsedTags = JSON.parse(tags);
+            } catch (e) {
+                parsedTags = [];
+            }
+        }
+
         // Process file attachments
         const attachments = req.files ? req.files.map(file => ({
             filename: file.filename,
@@ -37,8 +57,8 @@ const createTask = async (req, res) => {
             priority,
             createdBy: req.user._id,
             department: req.user.department._id,
-            assignedTo: assignedTo ? assignedTo.map(userId => ({ user: userId })) : [],
-            tags: tags || [],
+            assignedTo: parsedAssignedTo ? parsedAssignedTo.map(userId => ({ user: userId })) : [],
+            tags: parsedTags || [],
             attachments
         });
 
@@ -56,8 +76,8 @@ const createTask = async (req, res) => {
         );
 
         // Send notifications to assigned users
-        if (assignedTo && assignedTo.length > 0) {
-            for (const userId of assignedTo) {
+        if (parsedAssignedTo && parsedAssignedTo.length > 0) {
+            for (const userId of parsedAssignedTo) {
                 await Notification.createTaskNotification(
                     'task_assigned',
                     task._id,
