@@ -14,9 +14,7 @@ const createTask = async (req, res) => {
             description,
             deadline,
             priority,
-            estimatedDuration,
             assignedTo,
-            observers,
             tags
         } = req.body;
 
@@ -36,11 +34,9 @@ const createTask = async (req, res) => {
             description,
             deadline: new Date(deadline),
             priority,
-            estimatedDuration,
-            giver: req.user._id,
+            createdBy: req.user._id,
             department: req.user.department._id,
             assignedTo: assignedTo ? assignedTo.map(userId => ({ user: userId })) : [],
-            observers: observers || [],
             tags: tags || [],
             attachments
         });
@@ -72,9 +68,8 @@ const createTask = async (req, res) => {
 
         // Populate the task before sending response
         const populatedTask = await Task.findById(task._id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role')
             .populate('department', 'name');
 
         logger.info(`New task created: ${task.title} by ${req.user.email}`);
@@ -107,7 +102,7 @@ const getTasks = async (req, res) => {
             priority,
             stage,
             assignedTo,
-            giver,
+            createdBy,
             department,
             search,
             sortBy = 'createdAt',
@@ -118,7 +113,7 @@ const getTasks = async (req, res) => {
         const filter = { isActive: true };
 
         // Department-based filtering
-        if (req.user.role !== 'hod') {
+        if (req.user.role !== 'hod' && req.user.role !== 'admin') {
             filter.department = req.user.department._id;
         } else if (department) {
             filter.department = department;
@@ -128,7 +123,7 @@ const getTasks = async (req, res) => {
         if (status) filter.status = status;
         if (priority) filter.priority = priority;
         if (stage) filter.stage = stage;
-        if (giver) filter.giver = giver;
+        if (createdBy) filter.createdBy = createdBy;
         if (assignedTo) filter['assignedTo.user'] = assignedTo;
 
         // Search functionality
@@ -140,11 +135,14 @@ const getTasks = async (req, res) => {
         }
 
         // Role-based filtering
-        if (req.user.role === 'worker') {
-            filter['assignedTo.user'] = req.user._id;
-        } else if (req.user.role === 'observer') {
-            filter.observers = req.user._id;
+        if (req.user.role === 'employee') {
+            // Employees can see tasks assigned to them or created by them
+            filter.$or = [
+                { 'assignedTo.user': req.user._id },
+                { createdBy: req.user._id }
+            ];
         }
+        // HODs and admins can see all tasks in their scope (already handled above)
 
         // Pagination
         const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -154,9 +152,8 @@ const getTasks = async (req, res) => {
         sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
         const tasks = await Task.find(filter)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role')
             .populate('department', 'name')
             .sort(sortOptions)
             .skip(skip)
@@ -196,9 +193,8 @@ const getTask = async (req, res) => {
         const { id } = req.params;
 
         const task = await Task.findById(id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role')
             .populate('department', 'name');
 
         if (!task) {
@@ -276,7 +272,7 @@ const updateTaskStatus = async (req, res) => {
             await Notification.createTaskNotification(
                 'task_completed',
                 task._id,
-                task.giver,
+                task.createdBy,
                 req.user._id
             );
         } else if (status === 'approved') {
@@ -302,9 +298,9 @@ const updateTaskStatus = async (req, res) => {
         }
 
         const updatedTask = await Task.findById(id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role');
+            .populate('department', 'name');
 
         logger.info(`Task status updated: ${task.title} from ${oldStatus} to ${status} by ${req.user.email}`);
 
@@ -365,9 +361,9 @@ const updateTaskStage = async (req, res) => {
         );
 
         const updatedTask = await Task.findById(id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role');
+            .populate('department', 'name');
 
         logger.info(`Task stage updated: ${task.title} from ${oldStage} to ${stage} by ${req.user.email}`);
 
@@ -406,10 +402,10 @@ const addRemark = async (req, res) => {
         // Determine category based on user role if not specified
         let remarkCategory = category;
         if (category === 'auto') {
-            if (req.user.role === 'giver' || req.user.role === 'hod') {
-                remarkCategory = 'giver';
-            } else if (req.user.role === 'worker') {
-                remarkCategory = 'worker';
+            if (req.user._id.toString() === task.createdBy.toString() || req.user.role === 'hod' || req.user.role === 'admin') {
+                remarkCategory = 'creator';
+            } else if (task.assignedTo.some(assignment => assignment.user.toString() === req.user._id.toString())) {
+                remarkCategory = 'assignee';
             } else {
                 remarkCategory = 'general';
             }
@@ -429,9 +425,11 @@ const addRemark = async (req, res) => {
 
         // Send notification to relevant users
         const notificationRecipients = [];
-        if (req.user.role === 'worker') {
-            notificationRecipients.push(task.giver);
-        } else if (req.user.role === 'giver' || req.user.role === 'hod') {
+        if (task.assignedTo.some(assignment => assignment.user.toString() === req.user._id.toString())) {
+            // If assignee added remark, notify creator
+            notificationRecipients.push(task.createdBy);
+        } else if (req.user._id.toString() === task.createdBy.toString() || req.user.role === 'hod' || req.user.role === 'admin') {
+            // If creator/hod/admin added remark, notify assigned users
             task.assignedTo.forEach(assignment => {
                 notificationRecipients.push(assignment.user);
             });
@@ -449,11 +447,11 @@ const addRemark = async (req, res) => {
         }
 
         const updatedTask = await Task.findById(id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role')
-            .populate('remarks.giver.author', 'name email role')
-            .populate('remarks.worker.author', 'name email role')
+            .populate('department', 'name')
+            .populate('remarks.creator.author', 'name email role')
+            .populate('remarks.assignee.author', 'name email role')
             .populate('remarks.general.author', 'name email role');
 
         logger.info(`Remark added to task: ${task.title} by ${req.user.email}`);
@@ -490,10 +488,10 @@ const assignTask = async (req, res) => {
             });
         }
 
-        // Verify all users exist and are workers
+        // Verify all users exist and are active
         const users = await User.find({
             _id: { $in: userIds },
-            role: 'worker',
+            role: { $in: ['employee', 'hod', 'admin'] },
             isActive: true
         });
 
@@ -534,9 +532,9 @@ const assignTask = async (req, res) => {
         }
 
         const updatedTask = await Task.findById(id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role');
+            .populate('department', 'name');
 
         logger.info(`Task assigned: ${task.title} to ${users.map(u => u.name).join(', ')} by ${req.user.email}`);
 
@@ -567,7 +565,6 @@ const updateTask = async (req, res) => {
             description,
             deadline,
             priority,
-            estimatedDuration,
             tags
         } = req.body;
 
@@ -596,10 +593,6 @@ const updateTask = async (req, res) => {
         if (priority && priority !== task.priority) {
             changes.push({ field: 'priority', oldValue: task.priority, newValue: priority });
             task.priority = priority;
-        }
-        if (estimatedDuration && estimatedDuration !== task.estimatedDuration) {
-            changes.push({ field: 'estimatedDuration', oldValue: task.estimatedDuration, newValue: estimatedDuration });
-            task.estimatedDuration = estimatedDuration;
         }
         if (tags) {
             task.tags = tags;
@@ -637,10 +630,10 @@ const updateTask = async (req, res) => {
                 if (attachmentIndex !== -1) {
                     const attachment = task.attachments[attachmentIndex];
                     
-                    // Check permissions - only uploader, task giver, or HOD can delete
+                    // Check permissions - only uploader, task creator, HOD, or admin can delete
                     if (attachment.uploadedBy.toString() === req.user._id.toString() ||
-                        task.giver.toString() === req.user._id.toString() ||
-                        req.user.role === 'hod') {
+                        task.createdBy.toString() === req.user._id.toString() ||
+                        req.user.role === 'hod' || req.user.role === 'admin') {
                         
                         // Delete file from filesystem
                         const filePath = path.join(__dirname, '../', attachment.path);
@@ -679,9 +672,9 @@ const updateTask = async (req, res) => {
         }
 
         const updatedTask = await Task.findById(id)
-            .populate('giver', 'name email role')
+            .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
-            .populate('observers', 'name email role');
+            .populate('department', 'name');
 
         logger.info(`Task updated: ${task.title} by ${req.user.email}`);
 
@@ -749,11 +742,14 @@ const getTaskStats = async (req, res) => {
         }
 
         // Role-based filtering
-        if (req.user.role === 'worker') {
-            filter['assignedTo.user'] = req.user._id;
-        } else if (req.user.role === 'observer') {
-            filter.observers = req.user._id;
+        if (req.user.role === 'employee') {
+            // Employees see tasks assigned to them or created by them
+            filter.$or = [
+                { 'assignedTo.user': req.user._id },
+                { createdBy: req.user._id }
+            ];
         }
+        // HODs and admins see all tasks in their scope (already handled above)
 
         const stats = await Task.aggregate([
             { $match: filter },
