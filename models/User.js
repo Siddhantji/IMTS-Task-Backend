@@ -75,16 +75,6 @@ userSchema.virtual('displayName').get(function() {
     return this.name;
 });
 
-// Virtual for role permissions
-userSchema.virtual('permissions').get(function() {
-    const rolePermissions = {
-        employee: ['view_assigned_tasks', 'update_task_status', 'add_remarks'],
-        hod: ['create_tasks', 'assign_tasks', 'approve_tasks', 'view_department_tasks', 'manage_department'],
-        admin: ['full_access', 'manage_users', 'manage_departments', 'view_all_tasks']
-    };
-    return rolePermissions[this.role] || [];
-});
-
 // Pre-save middleware to hash password
 userSchema.pre('save', async function(next) {
     // Only hash the password if it has been modified (or is new)
@@ -133,11 +123,6 @@ userSchema.methods.generateRefreshToken = function() {
     return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
         expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d'
     });
-};
-
-// Instance method to check role permissions
-userSchema.methods.hasPermission = function(permission) {
-    return this.permissions.includes(permission);
 };
 
 // Instance method to check if user can access department
