@@ -818,8 +818,11 @@ const getTaskStats = async (req, res) => {
 const addAttachments = async (req, res) => {
     try {
         const { id } = req.params;
+        
+        logger.info(`Adding attachments to task ${id}. Files received:`, req.files?.length || 0);
 
         if (!req.files || req.files.length === 0) {
+            logger.warn('No files provided in attachment request');
             return res.status(400).json({
                 success: false,
                 message: 'No files provided'
@@ -828,24 +831,33 @@ const addAttachments = async (req, res) => {
 
         const task = await Task.findById(id);
         if (!task) {
+            logger.warn(`Task not found: ${id}`);
             return res.status(404).json({
                 success: false,
                 message: 'Task not found'
             });
         }
 
+        logger.info(`Processing ${req.files.length} files for task ${id}`);
+
         // Process attachments
-        const newAttachments = req.files.map(file => ({
-            filename: file.filename,
-            originalName: file.originalname,
-            path: path.relative(path.join(__dirname, '../'), file.path),
-            size: file.size,
-            mimetype: file.mimetype,
-            uploadedBy: req.user._id
-        }));
+        const newAttachments = req.files.map(file => {
+            logger.info(`Processing file: ${file.originalname}, size: ${file.size}, path: ${file.path}`);
+            return {
+                filename: file.filename,
+                originalName: file.originalname,
+                path: path.relative(path.join(__dirname, '../'), file.path),
+                size: file.size,
+                mimetype: file.mimetype,
+                uploadedBy: req.user._id,
+                uploadedAt: new Date()
+            };
+        });
 
         task.attachments.push(...newAttachments);
         await task.save();
+        
+        logger.info(`Successfully saved ${newAttachments.length} attachments to task ${id}`);
 
         // Create task history entry
         await TaskHistory.createEntry(
@@ -858,23 +870,20 @@ const addAttachments = async (req, res) => {
             }
         );
 
-        // Generate file URLs for response
-        const attachmentsWithUrls = newAttachments.map(attachment => ({
-            ...attachment.toObject ? attachment.toObject() : attachment,
-            url: upload.getFileUrl(req, attachment.path)
-        }));
+        logger.info(`Task history entry created for attachment addition to task ${id}`);
 
         res.status(201).json({
             success: true,
             message: 'Attachments added successfully',
             data: {
-                attachments: attachmentsWithUrls,
+                attachments: newAttachments,
                 count: newAttachments.length
             }
         });
 
     } catch (error) {
         logger.error('Add attachments error:', error);
+        logger.error('Error stack:', error.stack);
         res.status(500).json({
             success: false,
             message: 'Failed to add attachments',
