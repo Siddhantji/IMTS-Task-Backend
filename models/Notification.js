@@ -257,7 +257,7 @@ notificationSchema.statics.getNotificationStats = function(userId) {
 // Helper function to create task-related notifications
 notificationSchema.statics.createTaskNotification = async function(type, taskId, recipientId, senderId = null, additionalData = {}) {
     const Task = mongoose.model('Task');
-    const task = await Task.findById(taskId).populate('giver', 'name');
+    const task = await Task.findById(taskId).populate('createdBy', 'name');
     
     if (!task) {
         throw new Error('Task not found');
@@ -266,7 +266,7 @@ notificationSchema.statics.createTaskNotification = async function(type, taskId,
     const notificationTemplates = {
         task_assigned: {
             title: `New Task Assigned: ${task.title}`,
-            message: `You have been assigned a new task "${task.title}" by ${task.giver.name}. Priority: ${task.priority.toUpperCase()}`
+            message: `You have been assigned a new task "${task.title}" by ${task.createdBy.name}. Priority: ${task.priority.toUpperCase()}`
         },
         task_completed: {
             title: `Task Completed: ${task.title}`,
