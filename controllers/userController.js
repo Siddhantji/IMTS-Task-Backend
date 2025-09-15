@@ -417,6 +417,31 @@ const getUserStats = async (req, res) => {
     }
 };
 
+/**
+ * Get all active departments
+ */
+const getDepartments = async (req, res) => {
+    try {
+        const departments = await Department.find({ isActive: true })
+            .select('name _id')
+            .sort({ name: 1 });
+
+        res.json({
+            success: true,
+            data: departments,
+            count: departments.length
+        });
+
+    } catch (error) {
+        logger.error('Get departments error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get departments',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 module.exports = {
     getUsers,
     getUser,
@@ -425,5 +450,6 @@ module.exports = {
     transferUser,
     getWorkers,
     getTaskGivers,
-    getUserStats
+    getUserStats,
+    getDepartments
 };
