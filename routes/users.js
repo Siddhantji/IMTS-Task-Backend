@@ -47,6 +47,19 @@ const queryValidation = [
         .withMessage('Invalid department ID')
 ];
 
+// ==================== DEPARTMENT ENDPOINTS (Public) ====================
+
+/**
+ * @route   GET /api/users/departments
+ * @desc    Get all active departments
+ * @access  Public (No authentication required)
+ */
+router.get('/departments',
+    userController.getDepartments
+);
+
+// ==================== USER ENDPOINTS (Private) ====================
+
 /**
  * @route   GET /api/users
  * @desc    Get all users with filtering and pagination
@@ -127,17 +140,6 @@ router.put('/:id/transfer',
     transferUserValidation,
     handleValidationErrors,
     userController.transferUser
-);
-
-// ==================== DEPARTMENT ENDPOINTS ====================
-
-/**
- * @route   GET /api/users/departments
- * @desc    Get all active departments
- * @access  Public
- */
-router.get('/departments',
-    userController.getDepartments
 );
 
 module.exports = router;
