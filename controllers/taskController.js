@@ -16,12 +16,14 @@ const createTask = async (req, res) => {
             deadline,
             priority,
             assignedTo,
-            tags
+            tags,
+            isGroupTask
         } = req.body;
 
-        // Parse assignedTo and tags if they come as JSON strings (from FormData)
+        // Parse assignedTo, tags, and isGroupTask if they come as JSON strings (from FormData)
         let parsedAssignedTo = assignedTo;
         let parsedTags = tags;
+        let parsedIsGroupTask = isGroupTask;
 
         if (typeof assignedTo === 'string') {
             try {
@@ -38,6 +40,20 @@ const createTask = async (req, res) => {
                 parsedTags = [];
             }
         }
+
+        if (typeof isGroupTask === 'string') {
+            try {
+                parsedIsGroupTask = JSON.parse(isGroupTask);
+            } catch (e) {
+                parsedIsGroupTask = false;
+            }
+        }
+
+        console.log('Task creation debug:');
+        console.log('Raw isGroupTask:', isGroupTask);
+        console.log('Parsed isGroupTask:', parsedIsGroupTask);
+        console.log('Assigned users count:', parsedAssignedTo ? parsedAssignedTo.length : 0);
+        console.log('Will be group task:', parsedIsGroupTask !== undefined ? parsedIsGroupTask : (parsedAssignedTo && parsedAssignedTo.length > 1));
 
         // Process file attachments
         const attachments = req.files ? req.files.map(file => ({
@@ -59,7 +75,9 @@ const createTask = async (req, res) => {
             department: req.user.department._id,
             assignedTo: parsedAssignedTo ? parsedAssignedTo.map(userId => ({ user: userId })) : [],
             tags: parsedTags || [],
-            attachments
+            attachments,
+            // Auto-detect group task if multiple users assigned or use explicit flag
+            isGroupTask: parsedIsGroupTask !== undefined ? parsedIsGroupTask : (parsedAssignedTo && parsedAssignedTo.length > 1)
         });
 
         await task.save();
@@ -719,6 +737,152 @@ const updateTask = async (req, res) => {
 };
 
 /**
+ * Update individual stage for group task member
+ */
+const updateIndividualStage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { stage, status, notes } = req.body;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Find the user's assignment in the task
+        const assignmentIndex = task.assignedTo.findIndex(
+            assignment => assignment.user.toString() === req.user._id.toString()
+        );
+
+        if (assignmentIndex === -1) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not assigned to this task'
+            });
+        }
+
+        const assignment = task.assignedTo[assignmentIndex];
+        const oldStage = assignment.individualStage;
+        const oldStatus = assignment.status;
+
+        // Update the individual stage and status
+        if (stage) assignment.individualStage = stage;
+        if (status) assignment.status = status;
+        if (notes !== undefined) assignment.notes = notes;
+
+        // Set completion time if marking as completed
+        if (status === 'completed') {
+            assignment.completedAt = new Date();
+        }
+
+        await task.save();
+
+        // Create history entry for individual stage change
+        if (stage && stage !== oldStage) {
+            await TaskHistory.createEntry(
+                task._id,
+                'individual_stage_changed',
+                req.user._id,
+                {
+                    field: 'individual_stage',
+                    oldValue: oldStage,
+                    newValue: stage,
+                    description: `Individual stage changed from ${oldStage} to ${stage}`,
+                    assigneeId: req.user._id
+                }
+            );
+        }
+
+        // Create history entry for individual status change
+        if (status && status !== oldStatus) {
+            await TaskHistory.createEntry(
+                task._id,
+                'individual_status_changed',
+                req.user._id,
+                {
+                    field: 'individual_status',
+                    oldValue: oldStatus,
+                    newValue: status,
+                    description: `Individual status changed from ${oldStatus} to ${status}`,
+                    assigneeId: req.user._id
+                }
+            );
+        }
+
+        // Send notification to task creator and HOD about individual progress
+        if (stage === 'done' || status === 'completed') {
+            await Notification.createTaskNotification(
+                'individual_task_completed',
+                task._id,
+                task.createdBy,
+                req.user._id
+            );
+        }
+
+        // Check if all assigned users have completed their individual tasks
+        if (task.isGroupTask) {
+            const allCompleted = task.assignedTo.every(
+                assignment => assignment.status === 'completed' || assignment.individualStage === 'done'
+            );
+            
+            if (allCompleted && task.stage !== 'done') {
+                task.stage = 'done';
+                task.status = 'completed';
+                task.completedAt = new Date();
+                await task.save();
+
+                // Create history entry for overall task completion
+                await TaskHistory.createEntry(
+                    task._id,
+                    'task_auto_completed',
+                    req.user._id,
+                    {
+                        description: 'Task automatically completed as all individual assignments are done'
+                    }
+                );
+
+                // Notify task creator about overall completion
+                await Notification.createTaskNotification(
+                    'task_completed',
+                    task._id,
+                    task.createdBy,
+                    req.user._id
+                );
+            }
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('department', 'name');
+
+        logger.info(`Individual stage updated: ${task.title} - ${req.user.email} set stage to ${stage || assignment.individualStage}`);
+
+        res.json({
+            success: true,
+            message: 'Individual stage updated successfully',
+            data: { 
+                task: updatedTask,
+                individualAssignment: updatedTask.assignedTo.find(
+                    a => a.user._id.toString() === req.user._id.toString()
+                )
+            }
+        });
+
+    } catch (error) {
+        logger.error('Update individual stage error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update individual stage',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
  * Delete task (soft delete)
  */
 const deleteTask = async (req, res) => {
@@ -1199,6 +1363,7 @@ module.exports = {
     addRemark,
     assignTask,
     updateTask,
+    updateIndividualStage,
     deleteTask,
     getTaskStats,
     getDashboardStats,
