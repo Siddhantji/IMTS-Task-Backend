@@ -112,6 +112,22 @@ const updateStageValidation = [
         .withMessage('Reason cannot exceed 500 characters')
 ];
 
+const updateIndividualStageValidation = [
+    body('stage')
+        .optional()
+        .isIn(['planning', 'pending', 'done'])
+        .withMessage('Invalid individual stage value'),
+    body('status')
+        .optional()
+        .isIn(['assigned', 'in_progress', 'completed', 'blocked'])
+        .withMessage('Invalid individual status value'),
+    body('notes')
+        .optional()
+        .trim()
+        .isLength({ max: 1000 })
+        .withMessage('Notes cannot exceed 1000 characters')
+];
+
 const addRemarkValidation = [
     body('text')
         .trim()
@@ -263,6 +279,19 @@ router.put('/:id/stage',
     updateStageValidation,
     handleValidationErrors,
     taskController.updateTaskStage
+);
+
+/**
+ * @route   PUT /api/tasks/:id/individual-stage
+ * @desc    Update individual stage for group task member
+ * @access  Private (Assigned users only)
+ */
+router.put('/:id/individual-stage',
+    authenticateToken,
+    mongoIdValidation,
+    updateIndividualStageValidation,
+    handleValidationErrors,
+    taskController.updateIndividualStage
 );
 
 /**
