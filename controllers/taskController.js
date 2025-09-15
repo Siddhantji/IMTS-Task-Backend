@@ -1,0 +1,750 @@
+const { Task, TaskHistory, User, Notification } = require('../models');
+const { logger } = require('../utils/logger');
+
+/**
+ * Create a new task
+ */
+const createTask = async (req, res) => {
+    try {
+        const {
+            title,
+            description,
+            deadline,
+            priority,
+            estimatedDuration,
+            assignedTo,
+            observers,
+            tags
+        } = req.body;
+
+        // Create new task
+        const task = new Task({
+            title,
+            description,
+            deadline: new Date(deadline),
+            priority,
+            estimatedDuration,
+            giver: req.user._id,
+            department: req.user.department._id,
+            assignedTo: assignedTo ? assignedTo.map(userId => ({ user: userId })) : [],
+            observers: observers || [],
+            tags: tags || []
+        });
+
+        await task.save();
+
+        // Create task history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'created',
+            req.user._id,
+            { description: 'Task created' }
+        );
+
+        // Send notifications to assigned users
+        if (assignedTo && assignedTo.length > 0) {
+            for (const userId of assignedTo) {
+                await Notification.createTaskNotification(
+                    'task_assigned',
+                    task._id,
+                    userId,
+                    req.user._id
+                );
+            }
+        }
+
+        // Populate the task before sending response
+        const populatedTask = await Task.findById(task._id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role')
+            .populate('department', 'name');
+
+        logger.info(`New task created: ${task.title} by ${req.user.email}`);
+
+        res.status(201).json({
+            success: true,
+            message: 'Task created successfully',
+            data: { task: populatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Create task error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create task',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Get all tasks with filtering and pagination
+ */
+const getTasks = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            status,
+            priority,
+            stage,
+            assignedTo,
+            giver,
+            department,
+            search,
+            sortBy = 'createdAt',
+            sortOrder = 'desc'
+        } = req.query;
+
+        // Build filter query
+        const filter = { isActive: true };
+
+        // Department-based filtering
+        if (req.user.role !== 'hod') {
+            filter.department = req.user.department._id;
+        } else if (department) {
+            filter.department = department;
+        }
+
+        // Status filter
+        if (status) filter.status = status;
+        if (priority) filter.priority = priority;
+        if (stage) filter.stage = stage;
+        if (giver) filter.giver = giver;
+        if (assignedTo) filter['assignedTo.user'] = assignedTo;
+
+        // Search functionality
+        if (search) {
+            filter.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Role-based filtering
+        if (req.user.role === 'worker') {
+            filter['assignedTo.user'] = req.user._id;
+        } else if (req.user.role === 'observer') {
+            filter.observers = req.user._id;
+        }
+
+        // Pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Sort options
+        const sortOptions = {};
+        sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        const tasks = await Task.find(filter)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role')
+            .populate('department', 'name')
+            .sort(sortOptions)
+            .skip(skip)
+            .limit(parseInt(limit));
+
+        const total = await Task.countDocuments(filter);
+
+        res.json({
+            success: true,
+            data: {
+                tasks,
+                pagination: {
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(total / parseInt(limit)),
+                    totalTasks: total,
+                    hasNextPage: page * limit < total,
+                    hasPrevPage: page > 1
+                }
+            }
+        });
+
+    } catch (error) {
+        logger.error('Get tasks error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get tasks',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Get single task by ID
+ */
+const getTask = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const task = await Task.findById(id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role')
+            .populate('department', 'name');
+
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Get task history
+        const history = await TaskHistory.getTaskHistory(id, 20);
+
+        res.json({
+            success: true,
+            data: {
+                task,
+                history
+            }
+        });
+
+    } catch (error) {
+        logger.error('Get task error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get task',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Update task status
+ */
+const updateTaskStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, reason } = req.body;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const oldStatus = task.status;
+        task.status = status;
+
+        // Handle status-specific logic
+        if (status === 'completed') {
+            task.completedAt = new Date();
+        } else if (status === 'approved') {
+            task.approvedAt = new Date();
+            task.approvedBy = req.user._id;
+        }
+
+        await task.save();
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'status_changed',
+            req.user._id,
+            {
+                field: 'status',
+                oldValue: oldStatus,
+                newValue: status,
+                description: reason || `Status changed from ${oldStatus} to ${status}`
+            }
+        );
+
+        // Send notifications based on status change
+        if (status === 'completed') {
+            await Notification.createTaskNotification(
+                'task_completed',
+                task._id,
+                task.giver,
+                req.user._id
+            );
+        } else if (status === 'approved') {
+            // Notify all assigned users
+            for (const assignment of task.assignedTo) {
+                await Notification.createTaskNotification(
+                    'task_approved',
+                    task._id,
+                    assignment.user,
+                    req.user._id
+                );
+            }
+        } else if (status === 'rejected') {
+            // Notify all assigned users
+            for (const assignment of task.assignedTo) {
+                await Notification.createTaskNotification(
+                    'task_rejected',
+                    task._id,
+                    assignment.user,
+                    req.user._id
+                );
+            }
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role');
+
+        logger.info(`Task status updated: ${task.title} from ${oldStatus} to ${status} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Task status updated successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Update task status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update task status',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Update task stage
+ */
+const updateTaskStage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { stage, reason } = req.body;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const oldStage = task.stage;
+        
+        try {
+            await task.updateStage(stage);
+        } catch (stageError) {
+            return res.status(400).json({
+                success: false,
+                message: stageError.message
+            });
+        }
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'stage_changed',
+            req.user._id,
+            {
+                field: 'stage',
+                oldValue: oldStage,
+                newValue: stage,
+                description: reason || `Stage changed from ${oldStage} to ${stage}`
+            }
+        );
+
+        const updatedTask = await Task.findById(id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role');
+
+        logger.info(`Task stage updated: ${task.title} from ${oldStage} to ${stage} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Task stage updated successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Update task stage error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update task stage',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Add remark to task
+ */
+const addRemark = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { text, category = 'general' } = req.body;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Determine category based on user role if not specified
+        let remarkCategory = category;
+        if (category === 'auto') {
+            if (req.user.role === 'giver' || req.user.role === 'hod') {
+                remarkCategory = 'giver';
+            } else if (req.user.role === 'worker') {
+                remarkCategory = 'worker';
+            } else {
+                remarkCategory = 'general';
+            }
+        }
+
+        await task.addRemark(text, req.user._id, req.user.role, remarkCategory);
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'remark_added',
+            req.user._id,
+            {
+                description: `${remarkCategory} remark added: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`
+            }
+        );
+
+        // Send notification to relevant users
+        const notificationRecipients = [];
+        if (req.user.role === 'worker') {
+            notificationRecipients.push(task.giver);
+        } else if (req.user.role === 'giver' || req.user.role === 'hod') {
+            task.assignedTo.forEach(assignment => {
+                notificationRecipients.push(assignment.user);
+            });
+        }
+
+        for (const recipientId of notificationRecipients) {
+            await Notification.createNotification({
+                recipient: recipientId,
+                sender: req.user._id,
+                type: 'remark_added',
+                title: `New remark on task: ${task.title}`,
+                message: `${req.user.name} added a remark: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`,
+                relatedTask: task._id
+            });
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role')
+            .populate('remarks.giver.author', 'name email role')
+            .populate('remarks.worker.author', 'name email role')
+            .populate('remarks.general.author', 'name email role');
+
+        logger.info(`Remark added to task: ${task.title} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Remark added successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Add remark error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to add remark',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Assign task to users
+ */
+const assignTask = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userIds, reason } = req.body;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Verify all users exist and are workers
+        const users = await User.find({
+            _id: { $in: userIds },
+            role: 'worker',
+            isActive: true
+        });
+
+        if (users.length !== userIds.length) {
+            return res.status(400).json({
+                success: false,
+                message: 'Some users are not valid workers'
+            });
+        }
+
+        // Clear existing assignments and add new ones
+        task.assignedTo = userIds.map(userId => ({
+            user: userId,
+            assignedAt: new Date(),
+            status: 'assigned'
+        }));
+
+        await task.save();
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'assigned',
+            req.user._id,
+            {
+                description: reason || `Task assigned to ${users.map(u => u.name).join(', ')}`
+            }
+        );
+
+        // Send notifications to assigned users
+        for (const userId of userIds) {
+            await Notification.createTaskNotification(
+                'task_assigned',
+                task._id,
+                userId,
+                req.user._id
+            );
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role');
+
+        logger.info(`Task assigned: ${task.title} to ${users.map(u => u.name).join(', ')} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Task assigned successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Assign task error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to assign task',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Update task details
+ */
+const updateTask = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            title,
+            description,
+            deadline,
+            priority,
+            estimatedDuration,
+            tags
+        } = req.body;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Store old values for history
+        const changes = [];
+        if (title && title !== task.title) {
+            changes.push({ field: 'title', oldValue: task.title, newValue: title });
+            task.title = title;
+        }
+        if (description && description !== task.description) {
+            changes.push({ field: 'description', oldValue: task.description, newValue: description });
+            task.description = description;
+        }
+        if (deadline && new Date(deadline).getTime() !== new Date(task.deadline).getTime()) {
+            changes.push({ field: 'deadline', oldValue: task.deadline, newValue: new Date(deadline) });
+            task.deadline = new Date(deadline);
+        }
+        if (priority && priority !== task.priority) {
+            changes.push({ field: 'priority', oldValue: task.priority, newValue: priority });
+            task.priority = priority;
+        }
+        if (estimatedDuration && estimatedDuration !== task.estimatedDuration) {
+            changes.push({ field: 'estimatedDuration', oldValue: task.estimatedDuration, newValue: estimatedDuration });
+            task.estimatedDuration = estimatedDuration;
+        }
+        if (tags) {
+            task.tags = tags;
+        }
+
+        await task.save();
+
+        // Create history entries for each change
+        for (const change of changes) {
+            await TaskHistory.createEntry(
+                task._id,
+                change.field === 'deadline' ? 'deadline_changed' : 
+                change.field === 'priority' ? 'priority_changed' : 'updated',
+                req.user._id,
+                change
+            );
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('giver', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('observers', 'name email role');
+
+        logger.info(`Task updated: ${task.title} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Task updated successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Update task error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update task',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Delete task (soft delete)
+ */
+const deleteTask = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        task.isActive = false;
+        await task.save();
+
+        logger.info(`Task deleted: ${task.title} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Task deleted successfully'
+        });
+
+    } catch (error) {
+        logger.error('Delete task error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete task',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Get task statistics
+ */
+const getTaskStats = async (req, res) => {
+    try {
+        const filter = { isActive: true };
+
+        // Department-based filtering
+        if (req.user.role !== 'hod') {
+            filter.department = req.user.department._id;
+        }
+
+        // Role-based filtering
+        if (req.user.role === 'worker') {
+            filter['assignedTo.user'] = req.user._id;
+        } else if (req.user.role === 'observer') {
+            filter.observers = req.user._id;
+        }
+
+        const stats = await Task.aggregate([
+            { $match: filter },
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: 1 },
+                    created: { $sum: { $cond: [{ $eq: ['$status', 'created'] }, 1, 0] } },
+                    assigned: { $sum: { $cond: [{ $eq: ['$status', 'assigned'] }, 1, 0] } },
+                    in_progress: { $sum: { $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0] } },
+                    completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+                    approved: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                    rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } },
+                    high_priority: { $sum: { $cond: [{ $eq: ['$priority', 'high'] }, 1, 0] } },
+                    urgent_priority: { $sum: { $cond: [{ $eq: ['$priority', 'urgent'] }, 1, 0] } },
+                    overdue: {
+                        $sum: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $lt: ['$deadline', new Date()] },
+                                        { $nin: ['$status', ['completed', 'approved']] }
+                                    ]
+                                },
+                                1,
+                                0
+                            ]
+                        }
+                    }
+                }
+            }
+        ]);
+
+        res.json({
+            success: true,
+            data: stats.length > 0 ? stats[0] : {
+                total: 0,
+                created: 0,
+                assigned: 0,
+                in_progress: 0,
+                completed: 0,
+                approved: 0,
+                rejected: 0,
+                high_priority: 0,
+                urgent_priority: 0,
+                overdue: 0
+            }
+        });
+
+    } catch (error) {
+        logger.error('Get task stats error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get task statistics',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+module.exports = {
+    createTask,
+    getTasks,
+    getTask,
+    updateTaskStatus,
+    updateTaskStage,
+    addRemark,
+    assignTask,
+    updateTask,
+    deleteTask,
+    getTaskStats
+};
