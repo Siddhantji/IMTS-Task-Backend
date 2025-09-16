@@ -92,7 +92,7 @@ const updateTaskValidation = [
 
 const updateStatusValidation = [
     body('status')
-        .isIn(['created', 'assigned', 'in_progress', 'completed', 'approved', 'rejected', 'transferred'])
+        .isIn(['created', 'assigned', 'in_progress', 'completed', 'approved', 'rejected', 'transferred', 'pending'])
         .withMessage('Invalid status value'),
     body('reason')
         .optional()
@@ -103,7 +103,7 @@ const updateStatusValidation = [
 
 const updateStageValidation = [
     body('stage')
-        .isIn(['planning', 'development', 'testing', 'review', 'deployment', 'completed'])
+        .isIn(['planning', 'pending', 'done'])
         .withMessage('Invalid stage value'),
     body('reason')
         .optional()
@@ -191,7 +191,7 @@ const queryValidation = [
         .withMessage('Invalid priority filter'),
     query('stage')
         .optional()
-        .isIn(['planning', 'development', 'testing', 'review', 'deployment', 'completed'])
+        .isIn(['planning', 'pending', 'done'])
         .withMessage('Invalid stage filter')
 ];
 
