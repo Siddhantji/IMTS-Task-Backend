@@ -98,7 +98,7 @@ const taskSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: {
-            values: ['created', 'approved', 'rejected', 'transferred'],
+            values: ['created', 'assigned', 'in_progress', 'completed', 'approved', 'rejected', 'transferred', 'pending'],
             message: 'Invalid status value'
         },
         default: 'created'
@@ -373,15 +373,15 @@ taskSchema.methods.transferTo = function(fromUserId, toUserId, reason, approvedB
 };
 
 taskSchema.methods.updateStage = function(newStage) {
-    const stageOrder = ['planning', 'development', 'testing', 'review', 'deployment', 'completed'];
+    const stageOrder = ['planning', 'pending', 'done'];
     const currentIndex = stageOrder.indexOf(this.stage);
     const newIndex = stageOrder.indexOf(newStage);
     
-    if (newIndex > currentIndex || newStage === 'completed') {
+    if (newIndex > currentIndex || newStage === 'done') {
         this.stage = newStage;
         
-        if (newStage === 'completed') {
-            this.status = 'completed';
+        if (newStage === 'done') {
+            // Remove automatic status change - let creator decide via approve/reject
             this.completedAt = new Date();
             // Calculate time to complete in milliseconds from startDate to completedAt
             if (this.startDate) {
