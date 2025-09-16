@@ -13,9 +13,26 @@ const { logger } = require('./utils/logger');
 const { errorHandler, notFound, apiRateLimit } = require('./middleware');
 
 // Import routes
+console.log('📥 Loading routes...');
 const authRoutes = require('./routes/auth');
+console.log('✅ Auth routes loaded');
 const taskRoutes = require('./routes/tasks');
+console.log('✅ Task routes loaded');
 const userRoutes = require('./routes/users');
+console.log('✅ User routes loaded');
+
+let notificationRoutes;
+try {
+    notificationRoutes = require('./routes/notificationsSimpleV2');
+    console.log('✅ Notification routes loaded');
+} catch (error) {
+    console.error('❌ Error loading notification routes:', error.message);
+    console.error('Stack:', error.stack);
+    // Use a dummy route for now
+    const express = require('express');
+    notificationRoutes = express.Router();
+    notificationRoutes.get('/test', (req, res) => res.json({ error: 'Notification routes failed to load' }));
+}
 
 // Create Express app
 const app = express();
@@ -38,7 +55,11 @@ app.use(helmet({
 
 // CORS configuration
 const corsOptions = {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+        process.env.FRONTEND_URL || 'http://localhost:3000',
+        'http://localhost:5173', // Vite default port
+        'http://localhost:3000'  // Create React App default port
+    ],
     credentials: true,
     optionsSuccessStatus: 200,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -86,7 +107,8 @@ app.get('/api', (req, res) => {
         documentation: {
             authentication: '/api/auth',
             tasks: '/api/tasks',
-            users: '/api/users'
+            users: '/api/users',
+            notifications: '/api/notifications'
         },
         endpoints: {
             health: '/health',
@@ -120,6 +142,13 @@ app.get('/api', (req, res) => {
                 toggleStatus: 'PUT /api/users/:id/status',
                 transferUser: 'PUT /api/users/:id/transfer',
                 getStats: 'GET /api/users/stats'
+            },
+            notifications: {
+                getNotifications: 'GET /api/notifications',
+                getUnreadCount: 'GET /api/notifications/unread-count',
+                markAsRead: 'PUT /api/notifications/:id/read',
+                markAllAsRead: 'PUT /api/notifications/mark-all-read',
+                getTypes: 'GET /api/notifications/types'
             }
         }
     });
@@ -129,6 +158,13 @@ app.get('/api', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/notifications', notificationRoutes);
+
+console.log('🚀 Routes mounted:');
+console.log('  - /api/auth');
+console.log('  - /api/tasks'); 
+console.log('  - /api/users');
+console.log('  - /api/notifications');
 
 // Handle 404 routes
 app.use(notFound);
