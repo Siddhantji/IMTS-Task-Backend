@@ -1,4 +1,5 @@
 const { Task, TaskHistory, User, Notification } = require('../models');
+const NotificationService = require('../services/notificationService');
 const { logger } = require('../utils/logger');
 const upload = require('../config/upload');
 const jwt = require('jsonwebtoken');
@@ -418,6 +419,43 @@ const updateTaskStage = async (req, res) => {
                 description: reason || `Stage changed from ${oldStage} to ${stage}`
             }
         );
+
+        // Send notifications for stage changes
+        const notificationRecipients = new Set();
+        
+        // Notify task creator if they didn't make the change
+        if (task.createdBy.toString() !== req.user._id.toString()) {
+            notificationRecipients.add(task.createdBy.toString());
+        }
+        
+        // Notify all assigned users if they didn't make the change
+        task.assignedTo.forEach(assignment => {
+            if (assignment.user.toString() !== req.user._id.toString()) {
+                notificationRecipients.add(assignment.user.toString());
+            }
+        });
+        
+        // Send notifications to all recipients
+        for (const recipientId of notificationRecipients) {
+            try {
+                await Notification.createNotification({
+                    type: 'status_changed',
+                    recipient: recipientId,
+                    title: `Task stage updated: ${task.title}`,
+                    message: `Task stage changed from "${oldStage}" to "${stage}"${reason ? ` - ${reason}` : ''}`,
+                    priority: 'medium',
+                    relatedTask: task._id,
+                    createdBy: req.user._id,
+                    channels: {
+                        inApp: { enabled: true },
+                        email: { enabled: false }
+                    }
+                });
+            } catch (notificationError) {
+                console.error('Error creating stage change notification:', notificationError);
+                // Don't fail the whole operation if notification fails
+            }
+        }
 
         const updatedTask = await Task.findById(id)
             .populate('createdBy', 'name email role')
@@ -847,6 +885,33 @@ const updateIndividualStage = async (req, res) => {
                 task.createdBy,
                 req.user._id
             );
+        }
+
+        // For group tasks: notify other group members about stage changes
+        if (task.isGroupTask && (stage && stage !== oldStage)) {
+            const otherGroupMembers = task.assignedTo
+                .filter(assignment => assignment.user.toString() !== req.user._id.toString())
+                .map(assignment => assignment.user.toString());
+            
+            for (const memberId of otherGroupMembers) {
+                try {
+                    await Notification.createNotification({
+                        type: 'status_changed',
+                        recipient: memberId,
+                        title: `Group task update: ${task.title}`,
+                        message: `Team member updated their stage from "${oldStage}" to "${stage}"`,
+                        priority: 'medium',
+                        relatedTask: task._id,
+                        createdBy: req.user._id,
+                        channels: {
+                            inApp: { enabled: true },
+                            email: { enabled: false }
+                        }
+                    });
+                } catch (notificationError) {
+                    console.error('Error creating group task notification:', notificationError);
+                }
+            }
         }
 
         // For group tasks: reaching 'done' for all members is a milestone, not auto-closure.
@@ -1456,6 +1521,35 @@ const getDashboardStats = async (req, res) => {
     }
 };
 
+/**
+ * Helper function to create task history and corresponding notifications
+ */
+const createTaskHistoryWithNotification = async (taskId, action, performedBy, changes = {}, metadata = {}) => {
+    try {
+        // Create task history entry
+        const historyEntry = await TaskHistory.createEntry(
+            taskId,
+            action,
+            performedBy,
+            changes,
+            metadata
+        );
+
+        // Populate the history entry for notification service
+        await historyEntry.populate('performedBy', 'name email');
+
+        // Create notifications based on the history entry (excluding remarks)
+        if (action !== 'remark_added') {
+            await NotificationService.createNotificationFromHistory(historyEntry);
+        }
+
+        return historyEntry;
+    } catch (error) {
+        logger.error('Error creating task history with notification:', error);
+        throw error;
+    }
+};
+
 module.exports = {
     createTask,
     getTasks,
@@ -1473,5 +1567,6 @@ module.exports = {
     addAttachments,
     removeAttachment,
     downloadAttachment,
-    viewAttachmentPublic
+    viewAttachmentPublic,
+    createTaskHistoryWithNotification
 };
