@@ -107,10 +107,10 @@ const taskSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: {
-            values: ['planning', 'pending', 'done'],
+            values: ['not_started', 'pending', 'done'],
             message: 'Invalid stage value'
         },
-        default: 'planning'
+        default: 'not_started'
     },
     timeToComplete: {
         type: Number, // in milliseconds - calculated when task is completed
@@ -135,10 +135,10 @@ const taskSchema = new mongoose.Schema({
         individualStage: {
             type: String,
             enum: {
-                values: ['planning', 'pending', 'done'],
+                values: ['not_started', 'pending', 'done'],
                 message: 'Invalid individual stage value'
             },
-            default: 'planning'
+            default: 'not_started'
         },
         status: {
             type: String,
@@ -373,7 +373,7 @@ taskSchema.methods.transferTo = function(fromUserId, toUserId, reason, approvedB
 };
 
 taskSchema.methods.updateStage = function(newStage) {
-    const stageOrder = ['planning', 'pending', 'done'];
+    const stageOrder = ['not_started', 'pending', 'done'];
     const currentIndex = stageOrder.indexOf(this.stage);
     const newIndex = stageOrder.indexOf(newStage);
     
