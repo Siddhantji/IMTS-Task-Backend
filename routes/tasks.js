@@ -128,6 +128,19 @@ const updateIndividualStageValidation = [
         .withMessage('Notes cannot exceed 1000 characters')
 ];
 
+const updateIndividualApprovalValidation = [
+    body('userId')
+        .isMongoId()
+        .withMessage('Valid assignee userId is required'),
+    body('decision')
+        .isIn(['approve', 'reject'])
+        .withMessage('Decision must be approve or reject'),
+    body('reason')
+        .optional()
+        .isLength({ max: 500 })
+        .withMessage('Reason cannot exceed 500 characters')
+];
+
 const addRemarkValidation = [
     body('text')
         .trim()
@@ -292,6 +305,19 @@ router.put('/:id/individual-stage',
     updateIndividualStageValidation,
     handleValidationErrors,
     taskController.updateIndividualStage
+);
+
+/**
+ * @route   PUT /api/tasks/:id/individual-approval
+ * @desc    Approve or reject an individual assignee in a group task
+ * @access  Private (Creator/HOD/Admin)
+ */
+router.put('/:id/individual-approval',
+    authenticateToken,
+    mongoIdValidation,
+    updateIndividualApprovalValidation,
+    handleValidationErrors,
+    taskController.updateIndividualApproval
 );
 
 /**
