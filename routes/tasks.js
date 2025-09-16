@@ -103,7 +103,7 @@ const updateStatusValidation = [
 
 const updateStageValidation = [
     body('stage')
-        .isIn(['planning', 'pending', 'done'])
+        .isIn(['not_started', 'pending', 'done'])
         .withMessage('Invalid stage value'),
     body('reason')
         .optional()
@@ -115,7 +115,7 @@ const updateStageValidation = [
 const updateIndividualStageValidation = [
     body('stage')
         .optional()
-        .isIn(['planning', 'pending', 'done'])
+        .isIn(['not_started', 'pending', 'done'])
         .withMessage('Invalid individual stage value'),
     body('status')
         .optional()
@@ -191,7 +191,7 @@ const queryValidation = [
         .withMessage('Invalid priority filter'),
     query('stage')
         .optional()
-        .isIn(['planning', 'pending', 'done'])
+        .isIn(['not_started', 'pending', 'done'])
         .withMessage('Invalid stage filter')
 ];
 
