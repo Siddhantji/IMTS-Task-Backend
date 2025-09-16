@@ -49,11 +49,13 @@ const createTask = async (req, res) => {
             }
         }
 
-        console.log('Task creation debug:');
-        console.log('Raw isGroupTask:', isGroupTask);
-        console.log('Parsed isGroupTask:', parsedIsGroupTask);
-        console.log('Assigned users count:', parsedAssignedTo ? parsedAssignedTo.length : 0);
-        console.log('Will be group task:', parsedIsGroupTask !== undefined ? parsedIsGroupTask : (parsedAssignedTo && parsedAssignedTo.length > 1));
+    console.log('Task creation debug:');
+    console.log('Raw isGroupTask:', isGroupTask);
+    console.log('Parsed isGroupTask:', parsedIsGroupTask);
+    console.log('Assigned users count:', parsedAssignedTo ? parsedAssignedTo.length : 0);
+    const inferredIsGroup = Array.isArray(parsedAssignedTo) && parsedAssignedTo.length > 1;
+    const computedIsGroupTask = (parsedIsGroupTask === true) || inferredIsGroup;
+    console.log('Will be group task:', computedIsGroupTask);
 
         // Process file attachments
         const attachments = req.files ? req.files.map(file => ({
@@ -76,8 +78,8 @@ const createTask = async (req, res) => {
             assignedTo: parsedAssignedTo ? parsedAssignedTo.map(userId => ({ user: userId })) : [],
             tags: parsedTags || [],
             attachments,
-            // Auto-detect group task if multiple users assigned or use explicit flag
-            isGroupTask: parsedIsGroupTask !== undefined ? parsedIsGroupTask : (parsedAssignedTo && parsedAssignedTo.length > 1)
+            // Force group task if multiple assignees, or if explicitly true
+            isGroupTask: computedIsGroupTask
         });
 
         await task.save();
@@ -551,6 +553,16 @@ const assignTask = async (req, res) => {
             status: 'assigned'
         }));
 
+        // Recompute group flag based on count regardless of previous value
+        const willBeGroup = Array.isArray(userIds) && userIds.length > 1;
+        task.isGroupTask = willBeGroup || task.isGroupTask === true;
+
+        console.log('Assign task debug:', {
+            taskId: task._id.toString(),
+            assigneeCount: userIds.length,
+            willBeGroup
+        });
+
         await task.save();
 
         // Create history entry
@@ -925,8 +937,11 @@ const getTaskStats = async (req, res) => {
         const filter = { isActive: true };
 
         // Department-based filtering
-        if (req.user.role !== 'hod') {
-            filter.department = req.user.department._id;
+        // Admins can see all departments; HODs and Employees limited to own department
+        if (req.user.role === 'hod' || req.user.role === 'employee') {
+            if (req.user.department && req.user.department._id) {
+                filter.department = req.user.department._id;
+            }
         }
 
         // Role-based filtering
