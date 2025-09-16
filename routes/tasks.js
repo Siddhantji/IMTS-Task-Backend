@@ -148,8 +148,8 @@ const addRemarkValidation = [
         .withMessage('Remark text must be between 1 and 1000 characters'),
     body('category')
         .optional()
-        .isIn(['giver', 'worker', 'general', 'auto'])
-        .withMessage('Category must be giver, worker, general, or auto')
+        .isIn(['creator', 'assignee', 'general', 'auto'])
+        .withMessage('Category must be creator, assignee, general, or auto')
 ];
 
 const assignTaskValidation = [
