@@ -294,6 +294,21 @@ const updateTaskStatus = async (req, res) => {
         } else if (status === 'approved') {
             task.approvedAt = new Date();
             task.approvedBy = req.user._id;
+        } else if (status === 'in_progress' && oldStatus === 'rejected') {
+            // Allow rejected tasks to be moved back to in_progress for rework
+            task.completedAt = undefined;
+            task.approvedAt = undefined;
+            task.approvedBy = undefined;
+            // Also reset stage to pending if it was done
+            if (task.stage === 'done') {
+                task.stage = 'pending';
+            }
+        } else if (status === 'rejected') {
+            // When rejecting, clear completion/approval data and reset stage to pending
+            task.completedAt = undefined;
+            task.approvedAt = undefined;
+            task.approvedBy = undefined;
+            task.stage = 'pending'; // Auto-reset stage to pending when rejected
         }
 
         await task.save();
