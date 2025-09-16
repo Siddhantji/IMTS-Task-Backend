@@ -952,14 +952,16 @@ const updateIndividualApproval = async (req, res) => {
             const anyRejected = task.assignedTo.some(a => a.approval === 'rejected');
 
             if (allCompleted && allApproved) {
-                task.status = 'approved';
+                task.status = 'completed';
+                task.stage = 'done'; // Set stage to 'done' to indicate the group task is finished
                 task.approvedAt = new Date();
                 task.approvedBy = req.user._id;
                 await task.save();
             } else if (anyRejected) {
-                // Ensure task remains not approved
-                if (task.status === 'approved') {
+                // Ensure task remains not approved/completed
+                if (task.status === 'approved' || task.status === 'completed') {
                     task.status = 'in_progress';
+                    task.stage = 'pending';
                     task.approvedAt = undefined;
                     task.approvedBy = undefined;
                     await task.save();
