@@ -148,6 +148,18 @@ const taskSchema = new mongoose.Schema({
             },
             default: 'assigned'
         },
+        // Individual approval workflow
+        approval: {
+            type: String,
+            enum: ['pending', 'approved', 'rejected'],
+            default: 'pending'
+        },
+        approvalAt: Date,
+        approvedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        rejectionReason: String,
         completedAt: Date,
         notes: String // For individual notes/remarks specific to this assignee
     }],
