@@ -796,7 +796,7 @@ const updateIndividualStage = async (req, res) => {
         if (stage && stage !== oldStage) {
             await TaskHistory.createEntry(
                 task._id,
-                'individual_stage_changed',
+                'stage_changed',
                 req.user._id,
                 {
                     field: 'individual_stage',
@@ -812,7 +812,7 @@ const updateIndividualStage = async (req, res) => {
         if (status && status !== oldStatus) {
             await TaskHistory.createEntry(
                 task._id,
-                'individual_status_changed',
+                'status_changed',
                 req.user._id,
                 {
                     field: 'individual_status',
@@ -834,37 +834,8 @@ const updateIndividualStage = async (req, res) => {
             );
         }
 
-        // Check if all assigned users have completed their individual tasks
-        if (task.isGroupTask) {
-            const allCompleted = task.assignedTo.every(
-                assignment => assignment.status === 'completed' || assignment.individualStage === 'done'
-            );
-            
-            if (allCompleted && task.stage !== 'done') {
-                task.stage = 'done';
-                task.status = 'completed';
-                task.completedAt = new Date();
-                await task.save();
-
-                // Create history entry for overall task completion
-                await TaskHistory.createEntry(
-                    task._id,
-                    'task_auto_completed',
-                    req.user._id,
-                    {
-                        description: 'Task automatically completed as all individual assignments are done'
-                    }
-                );
-
-                // Notify task creator about overall completion
-                await Notification.createTaskNotification(
-                    'task_completed',
-                    task._id,
-                    task.createdBy,
-                    req.user._id
-                );
-            }
-        }
+        // For group tasks: reaching 'done' for all members is a milestone, not auto-closure.
+        // Overall closure happens when all individual approvals are 'approved'.
 
         const updatedTask = await Task.findById(id)
             .populate('createdBy', 'name email role')
@@ -891,6 +862,105 @@ const updateIndividualStage = async (req, res) => {
             message: 'Failed to update individual stage',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
+    }
+};
+
+/**
+ * Approve or reject an individual assignee's work on a group task
+ */
+const updateIndividualApproval = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId, decision, reason } = req.body; // decision: 'approve' | 'reject'
+
+        const task = await Task.findById(id).populate('assignedTo.user', 'name email role');
+        if (!task) {
+            return res.status(404).json({ success: false, message: 'Task not found' });
+        }
+
+        // Authorization: creator, HOD, or admin can approve/reject
+        const isPrivileged = (
+            task.createdBy.toString() === req.user._id.toString() ||
+            req.user.role === 'hod' ||
+            req.user.role === 'admin'
+        );
+        if (!isPrivileged) {
+            return res.status(403).json({ success: false, message: 'Not authorized to approve/reject' });
+        }
+
+        const idx = task.assignedTo.findIndex(a => a.user._id.toString() === userId);
+        if (idx === -1) {
+            return res.status(400).json({ success: false, message: 'User is not assigned to this task' });
+        }
+
+        const assn = task.assignedTo[idx];
+        const prevApproval = assn.approval || 'pending';
+
+        if (decision === 'approve') {
+            assn.approval = 'approved';
+            assn.approvalAt = new Date();
+            assn.approvedBy = req.user._id;
+            assn.rejectionReason = undefined;
+        } else if (decision === 'reject') {
+            assn.approval = 'rejected';
+            assn.approvalAt = new Date();
+            assn.approvedBy = req.user._id;
+            assn.rejectionReason = reason || '';
+            // On rejection, move the assignee back to in_progress/pending
+            assn.status = 'in_progress';
+            assn.individualStage = 'pending';
+            assn.completedAt = undefined;
+        } else {
+            return res.status(400).json({ success: false, message: 'Invalid decision' });
+        }
+
+        await task.save();
+
+        // History entry using existing enums
+        await TaskHistory.createEntry(
+            task._id,
+            decision === 'approve' ? 'approved' : 'rejected',
+            req.user._id,
+            {
+                field: 'individual_approval',
+                oldValue: prevApproval,
+                newValue: assn.approval,
+                description: `${decision === 'approve' ? 'Approved' : 'Rejected'} work of ${assn.user.name}${reason ? ` (Reason: ${reason})` : ''}`,
+                assigneeId: assn.user._id
+            }
+        );
+
+        // Auto-close when all approved; if any rejected, keep task open/in_progress
+        if (task.isGroupTask) {
+            const allCompleted = task.assignedTo.length > 0 && task.assignedTo.every(a => a.status === 'completed' || a.individualStage === 'done');
+            const allApproved = task.assignedTo.length > 0 && task.assignedTo.every(a => a.approval === 'approved');
+            const anyRejected = task.assignedTo.some(a => a.approval === 'rejected');
+
+            if (allCompleted && allApproved) {
+                task.status = 'approved';
+                task.approvedAt = new Date();
+                task.approvedBy = req.user._id;
+                await task.save();
+            } else if (anyRejected) {
+                // Ensure task remains not approved
+                if (task.status === 'approved') {
+                    task.status = 'in_progress';
+                    task.approvedAt = undefined;
+                    task.approvedBy = undefined;
+                    await task.save();
+                }
+            }
+        }
+
+        const updated = await Task.findById(id)
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('department', 'name');
+
+        return res.json({ success: true, message: 'Individual approval updated', data: { task: updated } });
+    } catch (error) {
+        logger.error('Update individual approval error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to update individual approval', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
     }
 };
 
@@ -1379,6 +1449,7 @@ module.exports = {
     assignTask,
     updateTask,
     updateIndividualStage,
+    updateIndividualApproval,
     deleteTask,
     getTaskStats,
     getDashboardStats,
