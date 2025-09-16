@@ -17,6 +17,7 @@ const notificationSchema = new mongoose.Schema({
             values: [
                 'task_assigned',
                 'task_completed',
+                'individual_task_completed',
                 'task_approved',
                 'task_rejected',
                 'task_transferred',
@@ -272,6 +273,10 @@ notificationSchema.statics.createTaskNotification = async function(type, taskId,
             title: `Task Completed: ${task.title}`,
             message: `Task "${task.title}" has been marked as completed and is awaiting your approval.`
         },
+        individual_task_completed: {
+            title: `Individual Task Completed: ${task.title}`,
+            message: `A team member has completed their part of the task "${task.title}" and is awaiting your approval.`
+        },
         task_approved: {
             title: `Task Approved: ${task.title}`,
             message: `Your task "${task.title}" has been approved. Great work!`
@@ -279,6 +284,10 @@ notificationSchema.statics.createTaskNotification = async function(type, taskId,
         task_rejected: {
             title: `Task Rejected: ${task.title}`,
             message: `Task "${task.title}" has been rejected. Please check the remarks and resubmit.`
+        },
+        status_changed: {
+            title: `Task Status Updated: ${task.title}`,
+            message: `Task "${task.title}" status has been updated. Please check the task for details.`
         },
         task_deadline_reminder: {
             title: `Deadline Reminder: ${task.title}`,
