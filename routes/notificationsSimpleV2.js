@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Task, TaskHistory, User } = require('../models');
+const { Task, TaskHistory, User, Notification } = require('../models');
 const { authenticateToken } = require('../middleware');
 
 console.log('🔔 NotificationsSimple v2 route loaded successfully!');
@@ -15,38 +15,43 @@ router.get('/test', (req, res) => {
     });
 });
 
-// Test TaskHistory data without auth
+// Test actual Notification data without auth
 router.get('/test-data', async (req, res) => {
     try {
-        const taskHistoryCount = await TaskHistory.countDocuments();
-        const recentHistory = await TaskHistory.find()
-            .populate('task', 'title')
-            .populate('performedBy', 'name')
-            .sort({ performedAt: -1 })
+        const notificationCount = await Notification.countDocuments();
+        const recentNotifications = await Notification.find()
+            .populate('sender', 'name')
+            .populate('recipient', 'name')
+            .populate('relatedTask', 'title')
+            .sort({ createdAt: -1 })
             .limit(5);
         
         res.json({
             success: true,
-            message: 'TaskHistory data test',
-            count: taskHistoryCount,
-            recentEntries: recentHistory.map(h => ({
-                action: h.action,
-                task: h.task?.title || 'Unknown',
-                performedBy: h.performedBy?.name || 'Unknown',
-                performedAt: h.performedAt
+            message: 'Notification data test',
+            count: notificationCount,
+            recentEntries: recentNotifications.map(n => ({
+                type: n.type,
+                title: n.title,
+                message: n.message,
+                recipient: n.recipient?.name || 'Unknown',
+                sender: n.sender?.name || 'Unknown',
+                relatedTask: n.relatedTask?.title || 'No task',
+                isRead: n.channels?.inApp?.read || false,
+                createdAt: n.createdAt
             }))
         });
     } catch (error) {
         res.status(500).json({
             success: false,
-            message: 'Error testing data',
+            message: 'Error testing notification data',
             error: error.message
         });
     }
 });
 
 /**
- * Get notifications for user based on TaskHistory (without read tracking for now)
+ * Get notifications for user from actual Notification collection
  */
 router.get('/', authenticateToken, async (req, res) => {
     console.log('🔔 GET /api/notifications called by user:', req.user?.id);
@@ -58,58 +63,46 @@ router.get('/', authenticateToken, async (req, res) => {
 
         console.log('📊 Query params:', { userId, page, limit, skip });
 
-        // Find all tasks where user is involved (creator or assignee)
-        const userTasks = await Task.find({
-            $or: [
-                { createdBy: userId },
-                { 'assignedTo.user': userId }
-            ]
-        }).select('_id');
-
-        console.log('📋 Found user tasks:', userTasks.length);
-
-        const taskIds = userTasks.map(task => task._id);
-
-        // Get TaskHistory for these tasks, excluding actions by the user themselves
-        const taskHistories = await TaskHistory.find({
-            task: { $in: taskIds },
-            performedBy: { $ne: userId } // Exclude actions by the user themselves
+        // Get notifications for the user
+        const notifications = await Notification.find({
+            recipient: userId,
+            isActive: true
         })
-        .populate('task', 'title priority status')
-        .populate('performedBy', 'name email role')
-        .sort({ performedAt: -1 })
+        .populate('sender', 'name email role')
+        .populate('relatedTask', 'title priority status')
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
 
-        console.log('📜 Found task histories:', taskHistories.length);
+        console.log('📜 Found notifications:', notifications.length);
 
-        // Transform to notification format (all marked as unread for now)
-        const notifications = taskHistories.map(history => ({
-            _id: history._id,
-            type: history.action,
-            title: getNotificationTitle(history),
-            message: getNotificationMessage(history),
-            createdAt: history.performedAt,
-            relatedTask: {
-                _id: history.task._id,
-                title: history.task.title
-            },
-            createdBy: history.performedBy,
-            priority: getPriorityFromAction(history.action),
-            isRead: false // Simple approach - all unread for now
+        // Transform to frontend format
+        const transformedNotifications = notifications.map(notification => ({
+            _id: notification._id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message, // Use the actual message from database
+            createdAt: notification.createdAt,
+            relatedTask: notification.relatedTask ? {
+                _id: notification.relatedTask._id,
+                title: notification.relatedTask.title
+            } : null,
+            createdBy: notification.sender,
+            priority: notification.priority,
+            isRead: notification.channels?.inApp?.read || false // Check if read in inApp channel
         }));
 
         // Get total count for pagination
-        const totalCount = await TaskHistory.countDocuments({
-            task: { $in: taskIds },
-            performedBy: { $ne: userId }
+        const totalCount = await Notification.countDocuments({
+            recipient: userId,
+            isActive: true
         });
 
-        console.log('✅ Sending response with', notifications.length, 'notifications');
+        console.log('✅ Sending response with', transformedNotifications.length, 'notifications');
 
         res.json({
             success: true,
-            data: notifications,
+            data: transformedNotifications,
             pagination: {
                 page,
                 limit,
@@ -129,32 +122,21 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 /**
- * Get unread count for user
+ * Get unread count for user from actual Notification collection
  */
 router.get('/unread-count', authenticateToken, async (req, res) => {
     console.log('🔔 /unread-count endpoint called by user:', req.user?.id);
     try {
         const userId = req.user.id;
 
-        // Find all tasks where user is involved
-        const userTasks = await Task.find({
+        // Count unread notifications in the inApp channel
+        const unreadCount = await Notification.countDocuments({
+            recipient: userId,
+            isActive: true,
             $or: [
-                { createdBy: userId },
-                { 'assignedTo.user': userId }
+                { 'channels.inApp.read': false },
+                { 'channels.inApp.read': { $exists: false } }
             ]
-        }).select('_id');
-
-        const taskIds = userTasks.map(task => task._id);
-        console.log('📋 User tasks found:', taskIds.length);
-
-        // Count unread notifications (TaskHistory entries from last 30 days, excluding user's own actions)
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        const unreadCount = await TaskHistory.countDocuments({
-            task: { $in: taskIds },
-            performedBy: { $ne: userId },
-            performedAt: { $gte: thirtyDaysAgo }
         });
 
         console.log('📊 Unread count calculated:', unreadCount);
@@ -174,69 +156,81 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
     }
 });
 
-// Placeholder for mark as read (simple response for now)
+// Mark notification as read
 router.patch('/:id/read', authenticateToken, async (req, res) => {
-    res.json({
-        success: true,
-        message: 'Notification marked as read (placeholder)'
-    });
-});
+    try {
+        const userId = req.user.id;
+        const notificationId = req.params.id;
 
-// Placeholder for mark all as read
-router.patch('/mark-all-read', authenticateToken, async (req, res) => {
-    res.json({
-        success: true,
-        message: 'All notifications marked as read (placeholder)'
-    });
-});
+        // Update the notification to mark inApp channel as read
+        const notification = await Notification.findOneAndUpdate(
+            { 
+                _id: notificationId, 
+                recipient: userId 
+            },
+            { 
+                'channels.inApp.read': true,
+                'channels.inApp.readAt': new Date()
+            },
+            { new: true }
+        );
 
-// Helper functions
-function getNotificationTitle(history) {
-    const actionTitles = {
-        'created': `New Task Created: ${history.task.title}`,
-        'assigned': `Task Assigned: ${history.task.title}`,
-        'status_changed': `Task Status Updated: ${history.task.title}`,
-        'stage_changed': `Task Stage Updated: ${history.task.title}`,
-        'transferred': `Task Transferred: ${history.task.title}`,
-        'remark_added': `New Remark Added: ${history.task.title}`,
-        'attachment_added': `Attachment Added: ${history.task.title}`,
-        'attachment_removed': `Attachment Removed: ${history.task.title}`,
-        'deadline_changed': `Deadline Updated: ${history.task.title}`,
-        'priority_changed': `Priority Updated: ${history.task.title}`,
-        'completed': `Task Completed: ${history.task.title}`,
-        'approved': `Task Approved: ${history.task.title}`,
-        'rejected': `Task Rejected: ${history.task.title}`
-    };
+        if (!notification) {
+            return res.status(404).json({
+                success: false,
+                message: 'Notification not found'
+            });
+        }
 
-    return actionTitles[history.action] || `Task Updated: ${history.task.title}`;
-}
+        res.json({
+            success: true,
+            message: 'Notification marked as read'
+        });
 
-function getNotificationMessage(history) {
-    const performerName = history.performedBy.name;
-    let baseMessage = `${performerName} ${history.actionDescription.toLowerCase()}`;
-    
-    if (history.changes && history.changes.description) {
-        baseMessage += ` - ${history.changes.description}`;
-    } else if (history.changes && history.changes.oldValue && history.changes.newValue) {
-        baseMessage += ` from "${history.changes.oldValue}" to "${history.changes.newValue}"`;
+    } catch (error) {
+        console.error('Error marking notification as read:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking notification as read',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
+});
 
-    return baseMessage;
-}
+// Mark all notifications as read
+router.patch('/mark-all-read', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
 
-function getPriorityFromAction(action) {
-    const priorityMap = {
-        'created': 'medium',
-        'assigned': 'high',
-        'completed': 'high',
-        'approved': 'medium',
-        'rejected': 'high',
-        'transferred': 'medium',
-        'deadline_changed': 'urgent',
-        'priority_changed': 'medium'
-    };
+        // Update all unread notifications for the user
+        const result = await Notification.updateMany(
+            { 
+                recipient: userId,
+                isActive: true,
+                $or: [
+                    { 'channels.inApp.read': false },
+                    { 'channels.inApp.read': { $exists: false } }
+                ]
+            },
+            { 
+                'channels.inApp.read': true,
+                'channels.inApp.readAt': new Date()
+            }
+        );
 
-    return priorityMap[action] || 'low';
-}
+        res.json({
+            success: true,
+            message: `${result.modifiedCount} notifications marked as read`
+        });
+
+    } catch (error) {
+        console.error('Error marking all notifications as read:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking all notifications as read',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
 
 module.exports = router;
