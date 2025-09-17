@@ -27,20 +27,30 @@ const createTask = async (req, res) => {
         let parsedTags = tags;
         let parsedIsGroupTask = isGroupTask;
 
+        // Handle assignedTo parsing
         if (typeof assignedTo === 'string') {
             try {
                 parsedAssignedTo = JSON.parse(assignedTo);
             } catch (e) {
                 parsedAssignedTo = [];
             }
+        } else if (Array.isArray(assignedTo)) {
+            parsedAssignedTo = assignedTo;
+        } else {
+            parsedAssignedTo = [];
         }
 
+        // Handle tags parsing (though tags validation is removed)
         if (typeof tags === 'string') {
             try {
                 parsedTags = JSON.parse(tags);
             } catch (e) {
                 parsedTags = [];
             }
+        } else if (Array.isArray(tags)) {
+            parsedTags = tags;
+        } else {
+            parsedTags = [];
         }
 
         if (typeof isGroupTask === 'string') {
@@ -49,6 +59,10 @@ const createTask = async (req, res) => {
             } catch (e) {
                 parsedIsGroupTask = false;
             }
+        } else if (typeof isGroupTask === 'boolean') {
+            parsedIsGroupTask = isGroupTask;
+        } else {
+            parsedIsGroupTask = false;
         }
 
     console.log('Task creation debug:');
