@@ -31,12 +31,14 @@ router.get('/test-data', async (req, res) => {
             message: 'Notification data test',
             count: notificationCount,
             recentEntries: recentNotifications.map(n => ({
+                _id: n._id,
                 type: n.type,
                 title: n.title,
                 message: n.message,
                 recipient: n.recipient?.name || 'Unknown',
                 sender: n.sender?.name || 'Unknown',
                 relatedTask: n.relatedTask?.title || 'No task',
+                channels: n.channels, // Show full channels structure
                 isRead: n.channels?.inApp?.read || false,
                 createdAt: n.createdAt
             }))
@@ -229,6 +231,47 @@ router.patch('/mark-all-read', authenticateToken, async (req, res) => {
             success: false,
             message: 'Error marking all notifications as read',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+// Test marking a notification as read (for debugging)
+router.get('/test-mark-read/:id', async (req, res) => {
+    try {
+        const notificationId = req.params.id;
+        
+        // First, show current state
+        const beforeUpdate = await Notification.findById(notificationId);
+        
+        // Update the notification
+        const afterUpdate = await Notification.findByIdAndUpdate(
+            notificationId,
+            { 
+                'channels.inApp.read': true,
+                'channels.inApp.readAt': new Date()
+            },
+            { new: true }
+        );
+        
+        res.json({
+            success: true,
+            message: 'Test mark as read',
+            before: {
+                id: beforeUpdate._id,
+                read: beforeUpdate.channels?.inApp?.read,
+                readAt: beforeUpdate.channels?.inApp?.readAt
+            },
+            after: {
+                id: afterUpdate._id,
+                read: afterUpdate.channels?.inApp?.read,
+                readAt: afterUpdate.channels?.inApp?.readAt
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error testing mark as read',
+            error: error.message
         });
     }
 });
