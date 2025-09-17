@@ -212,6 +212,153 @@ class EmailService {
     }
 
     /**
+     * Send email for individual task completion in group tasks
+     * Sends to task creator for approval/rejection of specific team member's work
+     */
+    async sendGroupTaskIndividualCompletionEmail(task, completedByUser, approvalTokens = null) {
+        try {
+            const creator = task.createdBy;
+            if (!creator || !creator.email) {
+                throw new Error('Task creator email not found');
+            }
+
+            const subject = `Team Member Work Completed - Approval Required: ${completedByUser.name} (${task.title})`;
+            
+            // Generate approval URLs
+            const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+            const approveUrl = approvalTokens?.approve 
+                ? `${baseUrl}/api/email-approval/approve/${approvalTokens.approve}`
+                : '#';
+            const rejectUrl = approvalTokens?.reject 
+                ? `${baseUrl}/api/email-approval/reject/${approvalTokens.reject}`
+                : '#';
+            
+            // Get team progress
+            const totalMembers = task.assignedTo.length;
+            const completedMembers = task.assignedTo.filter(a => a.individualStage === 'done').length;
+            const pendingMembers = task.assignedTo.filter(a => a.individualStage !== 'done');
+            
+            const htmlContent = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+                    <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                        <h1 style="color: white; margin: 0; font-size: 28px;">👥 Team Member Work Completed</h1>
+                        <p style="color: #dbeafe; margin: 10px 0 0 0; font-size: 16px;">Individual Approval Required</p>
+                    </div>
+                    
+                    <div style="padding: 30px;">
+                        <div style="background: #eff6ff; padding: 25px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+                            <h3 style="margin-top: 0; color: #1e40af; font-size: 20px;">👤 Completed Work Details</h3>
+                            <p style="margin: 10px 0;"><strong>Team Member:</strong> ${completedByUser.name}</p>
+                            <p style="margin: 10px 0;"><strong>Email:</strong> ${completedByUser.email}</p>
+                            <p style="margin: 10px 0;"><strong>Task:</strong> ${task.title}</p>
+                            <p style="margin: 10px 0;"><strong>Individual Work Status:</strong> <span style="color: #16a34a; font-weight: bold;">COMPLETED ✅</span></p>
+                            <p style="margin: 10px 0;"><strong>Completion Date:</strong> ${new Date().toLocaleDateString('en-US', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            })}</p>
+                        </div>
+
+                        <div style="background: #f8fafc; padding: 25px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #6b7280;">
+                            <h3 style="margin-top: 0; color: #374151; font-size: 18px;">📊 Overall Team Progress</h3>
+                            <p style="margin: 10px 0;"><strong>Total Team Members:</strong> ${totalMembers}</p>
+                            <p style="margin: 10px 0;"><strong>Completed Work:</strong> ${completedMembers}/${totalMembers} members</p>
+                            ${pendingMembers.length > 0 ? `
+                            <p style="margin: 10px 0;"><strong>Still Working:</strong> ${pendingMembers.map(m => m.user.name).join(', ')}</p>
+                            ` : ''}
+                            <div style="background: #e5e7eb; height: 10px; border-radius: 5px; margin: 15px 0;">
+                                <div style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: ${(completedMembers/totalMembers)*100}%; border-radius: 5px;"></div>
+                            </div>
+                            <p style="margin: 0; font-size: 14px; color: #6b7280;">${Math.round((completedMembers/totalMembers)*100)}% team progress</p>
+                        </div>
+
+                        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 25px 0;">
+                            <h3 style="margin-top: 0; color: #92400e; font-size: 18px;">⚡ Action Required</h3>
+                            <p style="margin: 10px 0; color: #92400e;">
+                                <strong>${completedByUser.name}</strong> has completed their individual work on this group task. 
+                                Please review and approve or reject their contribution.
+                            </p>
+                            <p style="margin: 10px 0; color: #92400e; font-size: 14px;">
+                                <strong>Note:</strong> This approval is only for ${completedByUser.name}'s individual work, 
+                                not the entire task. Other team members may still be working.
+                            </p>
+                        </div>
+
+                        <div style="text-align: center; margin: 30px 0;">
+                            <table style="margin: 0 auto;">
+                                <tr>
+                                    <td>
+                                        <a href="${approveUrl}" 
+                                           style="background: linear-gradient(135deg, #10b981, #059669); 
+                                                  color: white; 
+                                                  padding: 15px 30px; 
+                                                  text-decoration: none; 
+                                                  border-radius: 8px; 
+                                                  font-weight: bold;
+                                                  font-size: 16px;
+                                                  display: inline-block;
+                                                  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+                                                  transition: all 0.3s ease;">
+                                            ✅ APPROVE ${completedByUser.name.split(' ')[0]}'S WORK
+                                        </a>
+                                    </td>
+                                    <td style="padding-left: 15px;">
+                                        <a href="${rejectUrl}" 
+                                           style="background: linear-gradient(135deg, #ef4444, #dc2626); 
+                                                  color: white; 
+                                                  padding: 15px 30px; 
+                                                  text-decoration: none; 
+                                                  border-radius: 8px; 
+                                                  font-weight: bold;
+                                                  font-size: 16px;
+                                                  display: inline-block;
+                                                  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
+                                                  transition: all 0.3s ease;">
+                                            ❌ REJECT & REQUEST REVISION
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 15px; margin: 25px 0;">
+                            <p style="margin: 0; color: #9a3412; font-size: 14px;">
+                                <strong>Note:</strong> These approval links are secure and will expire in 7 days. 
+                                Your decision will only affect ${completedByUser.name}'s individual work status.
+                            </p>
+                        </div>
+
+                        <div style="text-align: center; padding: 20px; border-top: 1px solid #e5e7eb; margin-top: 30px;">
+                            <p style="margin: 0; color: #6b7280; font-size: 14px;">
+                                Best regards,<br>
+                                <strong>IMTS Task Management System</strong>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const mailOptions = {
+                from: `"IMTS Task Management" <${process.env.EMAIL_FROM}>`,
+                to: creator.email,
+                subject: subject,
+                html: htmlContent
+            };
+
+            const info = await this.transporter.sendMail(mailOptions);
+            logger.info(`Individual task completion email sent to ${creator.email} for task: ${task.title} (completed by: ${completedByUser.name})`);
+            return info;
+
+        } catch (error) {
+            console.error('Error sending group task individual completion email:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Send task approval notification email (approved/rejected)
      * Sends to assignees after creator approves or rejects
      */
