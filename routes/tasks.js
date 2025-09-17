@@ -34,8 +34,21 @@ const createTaskValidation = [
         .withMessage('Priority must be low, medium, high, or urgent'),
     body('assignedTo')
         .optional()
-        .isArray()
-        .withMessage('Assigned users must be an array'),
+        .custom((value) => {
+            // Allow array or JSON string representation of array
+            if (Array.isArray(value)) {
+                return true;
+            }
+            if (typeof value === 'string') {
+                try {
+                    const parsed = JSON.parse(value);
+                    return Array.isArray(parsed);
+                } catch (e) {
+                    throw new Error('Assigned users must be an array or valid JSON string');
+                }
+            }
+            throw new Error('Assigned users must be an array');
+        }),
     body('assignedTo.*')
         .optional()
         .isMongoId()
@@ -48,10 +61,7 @@ const createTaskValidation = [
         .optional()
         .isMongoId()
         .withMessage('Each observer must be a valid user ID'),
-    body('tags')
-        .optional()
-        .isArray()
-        .withMessage('Tags must be an array'),
+    // Tags validation removed as requested
     // Custom validation for file attachments (handled by multer middleware)
     body('removeAttachments')
         .optional()
