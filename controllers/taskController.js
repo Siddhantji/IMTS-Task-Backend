@@ -1,5 +1,6 @@
 const { Task, TaskHistory, User, Notification } = require('../models');
 const NotificationService = require('../services/notificationService');
+const emailService = require('../services/emailService');
 const { logger } = require('../utils/logger');
 const upload = require('../config/upload');
 const jwt = require('jsonwebtoken');
@@ -108,11 +109,23 @@ const createTask = async (req, res) => {
             }
         }
 
-        // Populate the task before sending response
+        // Populate the task before sending emails
         const populatedTask = await Task.findById(task._id)
             .populate('createdBy', 'name email role')
             .populate('assignedTo.user', 'name email role')
             .populate('department', 'name');
+
+        // Send assignment emails to assigned users
+        try {
+            if (parsedAssignedTo && parsedAssignedTo.length > 0) {
+                console.log('📧 Sending task assignment emails');
+                const assignees = populatedTask.assignedTo.map(assigned => assigned.user);
+                await emailService.sendTaskAssignmentEmail(populatedTask, assignees, req.user);
+            }
+        } catch (emailError) {
+            console.error('Error sending task assignment emails:', emailError);
+            // Don't fail the whole operation if email fails
+        }
 
         logger.info(`New task created: ${task.title} by ${req.user.email}`);
 
@@ -462,6 +475,18 @@ const updateTaskStage = async (req, res) => {
             .populate('assignedTo.user', 'name email role')
             .populate('department', 'name');
 
+        // Send email notifications for stage changes
+        try {
+            // If stage changed to "done", send approval email to task creator
+            if (stage === 'done' && oldStage !== 'done') {
+                console.log('📧 Sending task completion email for stage change to "done"');
+                await emailService.sendTaskCompletionEmail(updatedTask, req.user);
+            }
+        } catch (emailError) {
+            console.error('Error sending stage change email:', emailError);
+            // Don't fail the whole operation if email fails
+        }
+
         logger.info(`Task stage updated: ${task.title} from ${oldStage} to ${stage} by ${req.user.email}`);
 
         res.json({
@@ -550,6 +575,16 @@ const addRemark = async (req, res) => {
             .populate('remarks.creator.author', 'name email role')
             .populate('remarks.assignee.author', 'name email role')
             .populate('remarks.general.author', 'name email role');
+
+        // Send remark notification emails
+        try {
+            console.log('📧 Sending remark notification emails');
+            const remark = { text, createdBy: req.user._id, createdAt: new Date() };
+            await emailService.sendRemarkAddedEmail(updatedTask, remark, req.user);
+        } catch (emailError) {
+            console.error('Error sending remark notification emails:', emailError);
+            // Don't fail the whole operation if email fails
+        }
 
         logger.info(`Remark added to task: ${task.title} by ${req.user.email}`);
 
