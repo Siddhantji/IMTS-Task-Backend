@@ -431,6 +431,13 @@ const updateTaskStage = async (req, res) => {
             });
         }
 
+        // When stage is set to 'done', automatically set status to 'pending' for approval
+        if (stage === 'done' && oldStage !== 'done') {
+            task.status = 'pending';
+            await task.save();
+            console.log(`📋 Task stage updated to 'done', status automatically set to 'pending' for approval: ${task.title}`);
+        }
+
         // Create history entry
         await TaskHistory.createEntry(
             task._id,
@@ -916,7 +923,20 @@ const updateIndividualStage = async (req, res) => {
         if (status) assignment.status = status;
         if (notes !== undefined) assignment.notes = notes;
 
-        // Set completion time if marking as completed
+        // When individual stage is set to 'done', set status to 'completed' and approval to 'pending'
+        if (stage === 'done' && oldStage !== 'done') {
+            assignment.status = 'completed'; // Valid status value
+            assignment.approval = 'pending'; // Set approval status for workflow
+            assignment.completedAt = new Date(); // Set completion time
+            console.log(`📋 Individual stage updated to 'done':
+                Task: ${task.title}
+                User: ${req.user.name}
+                Old Stage: ${oldStage} → New Stage: done
+                Old Status: ${oldStatus} → New Status: completed
+                Approval: pending`);
+        }
+
+        // Set completion time if marking as completed (redundant now but keeping for other cases)
         if (status === 'completed') {
             assignment.completedAt = new Date();
         }
@@ -989,6 +1009,55 @@ const updateIndividualStage = async (req, res) => {
                 } catch (notificationError) {
                     console.error('Error creating group task notification:', notificationError);
                 }
+            }
+        }
+
+        // Send email approval notification for individual task completion in group tasks
+        if (stage === 'done' && oldStage !== 'done') {
+            try {
+                console.log('📧 Sending individual task completion email for approval');
+                
+                // Generate approval tokens for individual task completion
+                const { generateApprovalToken } = require('../routes/emailApproval');
+                const approveToken = generateApprovalToken(task._id, task.createdBy._id, 'approve', '7d', req.user._id);
+                const rejectToken = generateApprovalToken(task._id, task.createdBy._id, 'reject', '7d', req.user._id);
+                
+                const approvalTokens = {
+                    approve: approveToken,
+                    reject: rejectToken
+                };
+                
+                // Save tokens to task for tracking
+                task.approvalTokens = task.approvalTokens || [];
+                task.approvalTokens.push(
+                    {
+                        token: approveToken,
+                        action: 'approve',
+                        generatedAt: new Date(),
+                        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+                        used: false
+                    },
+                    {
+                        token: rejectToken,
+                        action: 'reject',
+                        generatedAt: new Date(),
+                        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+                        used: false
+                    }
+                );
+                await task.save();
+                
+                // Send email with approval tokens (will be populated in updatedTask query)
+                const tempTask = await Task.findById(task._id)
+                    .populate('createdBy', 'name email role')
+                    .populate('assignedTo.user', 'name email role')
+                    .populate('department', 'name');
+                
+                await emailService.sendGroupTaskIndividualCompletionEmail(tempTask, req.user, approvalTokens);
+                console.log(`📧 Group task individual completion email sent for: ${task.title} (User: ${req.user.name})`);
+            } catch (emailError) {
+                console.error('Error sending individual task completion email:', emailError);
+                // Don't fail the whole operation if email fails
             }
         }
 
