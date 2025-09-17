@@ -20,6 +20,8 @@ const taskRoutes = require('./routes/tasks');
 console.log('✅ Task routes loaded');
 const userRoutes = require('./routes/users');
 console.log('✅ User routes loaded');
+const emailRoutes = require('./routes/email');
+console.log('✅ Email routes loaded');
 
 let notificationRoutes;
 try {
@@ -159,11 +161,14 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/email', emailRoutes);
 
 console.log('🚀 Routes mounted:');
 console.log('  - /api/auth');
 console.log('  - /api/tasks'); 
 console.log('  - /api/users');
+console.log('  - /api/notifications');
+console.log('  - /api/email');
 console.log('  - /api/notifications');
 
 // Handle 404 routes
