@@ -216,6 +216,30 @@ const taskSchema = new mongoose.Schema({
         ref: 'User'
     },
     
+    // Email-based approval system
+    approvalStatus: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        // No default - will be undefined until set
+    },
+    approvalDate: Date,
+    approvalTokens: [{
+        token: String,
+        action: {
+            type: String,
+            enum: ['approve', 'reject']
+        },
+        generatedAt: {
+            type: Date,
+            default: Date.now
+        },
+        expiresAt: Date,
+        used: {
+            type: Boolean,
+            default: false
+        }
+    }],
+    
     // Transfer history
     transferHistory: [{
         from: {
