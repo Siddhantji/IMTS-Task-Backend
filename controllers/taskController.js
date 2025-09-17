@@ -302,6 +302,17 @@ const updateTaskStatus = async (req, res) => {
         const oldStatus = task.status;
         task.status = status;
 
+        // Don't allow setting approvalStatus to null via this endpoint
+        // This field should only be set by the email approval system
+        if (req.body.approvalStatus === null || req.body.approvalStatus === 'null') {
+            delete req.body.approvalStatus;
+        }
+        
+        // Prevent approvalStatus from being set to null accidentally
+        if (task.approvalStatus === null) {
+            task.approvalStatus = undefined;
+        }
+
         // Handle status-specific logic
         if (status === 'completed') {
             task.completedAt = new Date();
@@ -480,7 +491,39 @@ const updateTaskStage = async (req, res) => {
             // If stage changed to "done", send approval email to task creator
             if (stage === 'done' && oldStage !== 'done') {
                 console.log('📧 Sending task completion email for stage change to "done"');
-                await emailService.sendTaskCompletionEmail(updatedTask, req.user);
+                
+                // Generate approval tokens
+                const { generateApprovalToken } = require('../routes/emailApproval');
+                const approveToken = generateApprovalToken(updatedTask._id, updatedTask.createdBy._id, 'approve', '7d');
+                const rejectToken = generateApprovalToken(updatedTask._id, updatedTask.createdBy._id, 'reject', '7d');
+                
+                const approvalTokens = {
+                    approve: approveToken,
+                    reject: rejectToken
+                };
+                
+                // Save tokens to task for tracking (optional)
+                updatedTask.approvalTokens = updatedTask.approvalTokens || [];
+                updatedTask.approvalTokens.push(
+                    {
+                        token: approveToken,
+                        action: 'approve',
+                        generatedAt: new Date(),
+                        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+                        used: false
+                    },
+                    {
+                        token: rejectToken,
+                        action: 'reject',
+                        generatedAt: new Date(),
+                        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+                        used: false
+                    }
+                );
+                await updatedTask.save();
+                
+                // Send email with approval tokens
+                await emailService.sendTaskCompletionEmail(updatedTask, req.user, approvalTokens);
             }
         } catch (emailError) {
             console.error('Error sending stage change email:', emailError);
