@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { Task, User } = require('../models');
+const { Task, User, TaskHistory, Notification } = require('../models');
 const emailService = require('../services/emailService');
+const { logger } = require('../utils/logger');
 
 /**
  * Generate a secure approval token for email-based actions
@@ -89,19 +90,20 @@ router.get('/approve/:token', async (req, res) => {
             `);
         }
         
-        // Check if task is already approved or rejected
-        if (task.approvalStatus) {
+        // Check if task is already approved (final state)
+        if (task.approvalStatus === 'approved') {
             return res.status(400).send(`
                 <html>
-                    <head><title>Already Processed</title></head>
+                    <head><title>Already Approved</title></head>
                     <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                        <h2 style="color: #f39c12;">⚠️ Already Processed</h2>
-                        <p>This task has already been ${task.approvalStatus}.</p>
-                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <h2 style="color: #f39c12;">⚠️ Already Approved</h2>
+                        <p>This task has already been approved and cannot be modified.</p>
+                        <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0;">
                             <h3>${task.title}</h3>
                             <p><strong>Status:</strong> ${task.approvalStatus}</p>
-                            <p><strong>Processed on:</strong> ${task.approvalDate ? new Date(task.approvalDate).toLocaleString() : 'N/A'}</p>
+                            <p><strong>Approved on:</strong> ${task.approvalDate ? new Date(task.approvalDate).toLocaleString() : 'N/A'}</p>
                         </div>
+                        <p>Once approved, tasks cannot be rejected or modified further.</p>
                     </body>
                 </html>
             `);
@@ -126,7 +128,31 @@ router.get('/approve/:token', async (req, res) => {
         task.approvalStatus = 'approved';
         task.approvalDate = new Date();
         task.approvedBy = userId;
-        task.stage = 'completed'; // Move to completed stage
+        task.status = 'approved'; // Set status to approved as per your requirement
+        
+        // Update stage logic similar to updateTaskStage/updateIndividualStage
+        const oldStage = task.stage;
+        const approver = await User.findById(userId);
+        
+        // For group tasks, update individual stages
+        if (task.isGroupTask) {
+            // Update all individual stages to 'done' since task is approved
+            task.assignedTo.forEach(assignment => {
+                if (assignment.individualStage !== 'done') {
+                    assignment.individualStage = 'done';
+                    assignment.status = 'completed';
+                    assignment.completedAt = new Date();
+                }
+            });
+        } else {
+            // For individual tasks, update main stage
+            try {
+                await task.updateStage('done');
+            } catch (stageError) {
+                console.error('Stage update error during approval:', stageError);
+                // Don't fail approval if stage update fails
+            }
+        }
         
         // Mark token as used
         if (approveTokenRecord) {
@@ -135,6 +161,71 @@ router.get('/approve/:token', async (req, res) => {
         
         await task.save();
         
+        // Create history entry for approval
+        try {
+            await TaskHistory.createEntry(
+                task._id,
+                'task_approved',
+                userId,
+                {
+                    field: 'approvalStatus',
+                    oldValue: 'pending',
+                    newValue: 'approved',
+                    description: `Task approved via email by ${approver ? approver.name : 'Unknown user'}`
+                }
+            );
+            
+            // Create stage history if stage changed
+            if (task.stage !== oldStage) {
+                await TaskHistory.createEntry(
+                    task._id,
+                    'stage_changed',
+                    userId,
+                    {
+                        field: 'stage',
+                        oldValue: oldStage,
+                        newValue: task.stage,
+                        description: `Stage updated to ${task.stage} due to approval`
+                    }
+                );
+            }
+        } catch (historyError) {
+            console.error('Error creating approval history:', historyError);
+        }
+        
+        // Send notifications similar to updateTaskStage
+        try {
+            const notificationRecipients = new Set();
+            
+            // Notify all assigned users
+            task.assignedTo.forEach(assignment => {
+                notificationRecipients.add(assignment.user.toString());
+            });
+            
+            // Send notifications to all recipients
+            for (const recipientId of notificationRecipients) {
+                try {
+                    await Notification.createNotification({
+                        type: 'task_approved',
+                        recipient: recipientId,
+                        title: `Task approved: ${task.title}`,
+                        message: `Your task has been approved by ${approver ? approver.name : 'the task creator'}`,
+                        priority: 'high',
+                        relatedTask: task._id,
+                        createdBy: userId,
+                        channels: {
+                            inApp: { enabled: true },
+                            email: { enabled: false }
+                        }
+                    });
+                } catch (notificationError) {
+                    console.error('Error creating approval notification:', notificationError);
+                }
+            }
+        } catch (notificationError) {
+            console.error('Error sending approval notifications:', notificationError);
+        }
+        
         // Send notification email to assignees about approval
         try {
             const assignees = task.assignedTo.map(assigned => assigned.user);
@@ -142,6 +233,10 @@ router.get('/approve/:token', async (req, res) => {
         } catch (emailError) {
             console.error('Failed to send approval notification email:', emailError);
         }
+        
+        // Log successful approval
+        logger.info(`Task approved via email: ${task.title} by user ${userId}`);
+        console.log(`✅ Task approved: ${task.title} | Stage: ${oldStage} → ${task.stage} | Status: approved`);
         
         // Return success page
         res.send(`
@@ -243,23 +338,26 @@ router.get('/reject/:token', async (req, res) => {
             `);
         }
         
-        // Check if task is already approved or rejected
-        if (task.approvalStatus) {
+        // Check if task is already approved (cannot reject approved tasks)
+        if (task.approvalStatus === 'approved') {
             return res.status(400).send(`
                 <html>
-                    <head><title>Already Processed</title></head>
+                    <head><title>Cannot Reject Approved Task</title></head>
                     <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                        <h2 style="color: #f39c12;">⚠️ Already Processed</h2>
-                        <p>This task has already been ${task.approvalStatus}.</p>
-                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <h2 style="color: #f39c12;">⚠️ Cannot Reject</h2>
+                        <p>This task has already been approved and cannot be rejected.</p>
+                        <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0;">
                             <h3>${task.title}</h3>
                             <p><strong>Status:</strong> ${task.approvalStatus}</p>
-                            <p><strong>Processed on:</strong> ${task.approvalDate ? new Date(task.approvalDate).toLocaleString() : 'N/A'}</p>
+                            <p><strong>Approved on:</strong> ${task.approvalDate ? new Date(task.approvalDate).toLocaleString() : 'N/A'}</p>
                         </div>
+                        <p>Approved tasks are final and cannot be modified.</p>
                     </body>
                 </html>
             `);
         }
+        
+        // Note: Multiple rejections are allowed - users can resubmit and get rejected again
         
         // Check if token has been used (for rejection)
         const rejectTokenRecord = task.approvalTokens?.find(t => t.token === token);
@@ -276,11 +374,36 @@ router.get('/reject/:token', async (req, res) => {
             `);
         }
         
-        // Update task with rejection
+        // Update task with rejection (multiple rejections allowed)
+        const previousStatus = task.approvalStatus;
         task.approvalStatus = 'rejected';
-        task.approvalDate = new Date();
+        task.approvalDate = new Date(); // Update timestamp for latest rejection
         task.approvedBy = userId;
-        task.stage = 'in-progress'; // Move back to in-progress for revision
+        task.status = 'rejected'; // Set main status to rejected for approval tracking
+        
+        // Update stage logic similar to updateTaskStage/updateIndividualStage
+        const oldStage = task.stage;
+        const rejector = await User.findById(userId);
+        
+        // For group tasks, update individual stages back to pending for revision
+        if (task.isGroupTask) {
+            task.assignedTo.forEach(assignment => {
+                if (assignment.individualStage === 'done') {
+                    assignment.individualStage = 'pending'; // Move back to pending for revision
+                    assignment.status = 'in_progress'; // Set to in_progress so they can work on it
+                    assignment.completedAt = undefined; // Clear completion time
+                }
+            });
+        } else {
+            // For individual tasks, move stage back to pending for revision
+            // but keep main status as 'rejected' for approval tracking
+            try {
+                await task.updateStage('pending');
+            } catch (stageError) {
+                console.error('Stage update error during rejection:', stageError);
+                // Don't fail rejection if stage update fails
+            }
+        }
         
         // Mark token as used
         if (rejectTokenRecord) {
@@ -289,6 +412,71 @@ router.get('/reject/:token', async (req, res) => {
         
         await task.save();
         
+        // Create history entry for rejection
+        try {
+            await TaskHistory.createEntry(
+                task._id,
+                'task_rejected',
+                userId,
+                {
+                    field: 'approvalStatus',
+                    oldValue: previousStatus || 'pending',
+                    newValue: 'rejected',
+                    description: `Task ${previousStatus === 'rejected' ? 're-' : ''}rejected via email by ${rejector ? rejector.name : 'Unknown user'}`
+                }
+            );
+            
+            // Create stage history if stage changed
+            if (task.stage !== oldStage) {
+                await TaskHistory.createEntry(
+                    task._id,
+                    'stage_changed',
+                    userId,
+                    {
+                        field: 'stage',
+                        oldValue: oldStage,
+                        newValue: task.stage,
+                        description: `Stage updated to ${task.stage} due to rejection - requires revision`
+                    }
+                );
+            }
+        } catch (historyError) {
+            console.error('Error creating rejection history:', historyError);
+        }
+        
+        // Send notifications similar to updateTaskStage
+        try {
+            const notificationRecipients = new Set();
+            
+            // Notify all assigned users
+            task.assignedTo.forEach(assignment => {
+                notificationRecipients.add(assignment.user.toString());
+            });
+            
+            // Send notifications to all recipients
+            for (const recipientId of notificationRecipients) {
+                try {
+                    await Notification.createNotification({
+                        type: 'task_rejected',
+                        recipient: recipientId,
+                        title: `Task rejected: ${task.title}`,
+                        message: `Your task has been rejected by ${rejector ? rejector.name : 'the task creator'} and needs revision`,
+                        priority: 'high',
+                        relatedTask: task._id,
+                        createdBy: userId,
+                        channels: {
+                            inApp: { enabled: true },
+                            email: { enabled: false }
+                        }
+                    });
+                } catch (notificationError) {
+                    console.error('Error creating rejection notification:', notificationError);
+                }
+            }
+        } catch (notificationError) {
+            console.error('Error sending rejection notifications:', notificationError);
+        }
+        
         // Send notification email to assignees about rejection
         try {
             const assignees = task.assignedTo.map(assigned => assigned.user);
@@ -296,6 +484,10 @@ router.get('/reject/:token', async (req, res) => {
         } catch (emailError) {
             console.error('Failed to send rejection notification email:', emailError);
         }
+        
+        // Log successful rejection
+        logger.info(`Task rejected via email: ${task.title} by user ${userId}`);
+        console.log(`❌ Task rejected: ${task.title} | Stage: ${oldStage} → ${task.stage} | Status: rejected`);
         
         // Return rejection page
         res.send(`
