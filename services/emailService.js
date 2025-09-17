@@ -82,7 +82,7 @@ class EmailService {
      * Send email for task completion (stage changed to "done")
      * Sends to task creator for approval/rejection
      */
-    async sendTaskCompletionEmail(task, assignee) {
+    async sendTaskCompletionEmail(task, assignee, approvalTokens = null) {
         try {
             const creator = task.createdBy;
             if (!creator || !creator.email) {
@@ -91,48 +91,108 @@ class EmailService {
 
             const subject = `Task Completed - Approval Required: ${task.title}`;
             
+            // Generate approval URLs
+            const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+            const approveUrl = approvalTokens?.approve 
+                ? `${baseUrl}/api/email-approval/approve/${approvalTokens.approve}`
+                : '#';
+            const rejectUrl = approvalTokens?.reject 
+                ? `${baseUrl}/api/email-approval/reject/${approvalTokens.reject}`
+                : '#';
+            
             const htmlContent = `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #2563eb;">Task Completed - Approval Required</h2>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                        <h1 style="color: white; margin: 0; font-size: 28px;">✅ Task Completed</h1>
+                        <p style="color: #f0f0f0; margin: 10px 0 0 0; font-size: 16px;">Approval Required</p>
+                    </div>
                     
-                    <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                        <h3 style="margin-top: 0; color: #1f2937;">Task Details</h3>
-                        <p><strong>Title:</strong> ${task.title}</p>
-                        <p><strong>Description:</strong> ${task.description || 'No description'}</p>
-                        <p><strong>Priority:</strong> <span style="color: ${this.getPriorityColor(task.priority)}">${task.priority?.toUpperCase()}</span></p>
-                        <p><strong>Completed by:</strong> ${assignee.name} (${assignee.email})</p>
-                        <p><strong>Completion Date:</strong> ${new Date().toLocaleDateString()}</p>
+                    <div style="padding: 30px;">
+                        <div style="background: #f8fafc; padding: 25px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+                            <h3 style="margin-top: 0; color: #1f2937; font-size: 20px;">📋 Task Details</h3>
+                            <p style="margin: 10px 0;"><strong>Title:</strong> ${task.title}</p>
+                            <p style="margin: 10px 0;"><strong>Description:</strong> ${task.description || 'No description'}</p>
+                            <p style="margin: 10px 0;"><strong>Priority:</strong> <span style="color: ${this.getPriorityColor(task.priority)}; font-weight: bold;">${task.priority?.toUpperCase()}</span></p>
+                            <p style="margin: 10px 0;"><strong>Completed by:</strong> ${assignee.name} (${assignee.email})</p>
+                            <p style="margin: 10px 0;"><strong>Completion Date:</strong> ${new Date().toLocaleDateString('en-US', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            })}</p>
+                        </div>
+
+                        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 20px; margin: 25px 0;">
+                            <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                                <span style="font-size: 24px; margin-right: 10px;">⏰</span>
+                                <h3 style="margin: 0; color: #065f46;">Action Required</h3>
+                            </div>
+                            <p style="margin: 0; color: #047857; line-height: 1.5;">
+                                This task has been marked as <strong>completed</strong> and requires your approval. 
+                                Please review the work and either approve or reject the task using the buttons below.
+                            </p>
+                        </div>
+
+                        <div style="text-align: center; margin: 35px 0;">
+                            <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+                                <tr>
+                                    <td style="padding-right: 15px;">
+                                        <a href="${approveUrl}" 
+                                           style="background: linear-gradient(135deg, #10b981, #059669); 
+                                                  color: white; 
+                                                  padding: 15px 30px; 
+                                                  text-decoration: none; 
+                                                  border-radius: 8px; 
+                                                  font-weight: bold;
+                                                  font-size: 16px;
+                                                  display: inline-block;
+                                                  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+                                                  transition: all 0.3s ease;">
+                                            ✅ APPROVE TASK
+                                        </a>
+                                    </td>
+                                    <td style="padding-left: 15px;">
+                                        <a href="${rejectUrl}" 
+                                           style="background: linear-gradient(135deg, #ef4444, #dc2626); 
+                                                  color: white; 
+                                                  padding: 15px 30px; 
+                                                  text-decoration: none; 
+                                                  border-radius: 8px; 
+                                                  font-weight: bold;
+                                                  font-size: 16px;
+                                                  display: inline-block;
+                                                  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
+                                                  transition: all 0.3s ease;">
+                                            ❌ REJECT TASK
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 15px; margin: 25px 0;">
+                            <p style="margin: 0; color: #9a3412; font-size: 14px;">
+                                <strong>Note:</strong> These approval links are secure and will expire in 7 days. 
+                                Click directly on the buttons above to approve or reject this task instantly.
+                            </p>
+                        </div>
+
+                        <div style="text-align: center; margin: 25px 0;">
+                            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/tasks/${task._id}" 
+                               style="color: #3b82f6; text-decoration: none; font-weight: 500;">
+                                📖 View Full Task Details in Dashboard →
+                            </a>
+                        </div>
                     </div>
 
-                    <div style="background: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; margin: 20px 0;">
-                        <p style="margin: 0; color: #047857;">
-                            <strong>Action Required:</strong> This task has been marked as completed and requires your approval.
+                    <div style="background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 12px 12px;">
+                        <p style="color: #6b7280; font-size: 12px; margin: 0; line-height: 1.4;">
+                            This is an automated email from <strong>IMTS Task Management System</strong>.<br>
+                            Please do not reply to this email. For support, contact your system administrator.
                         </p>
                     </div>
-
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${process.env.FRONTEND_URL}/tasks/${task._id}?action=approve" 
-                           style="background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 0 10px; display: inline-block;">
-                            ✅ Approve Task
-                        </a>
-                        <a href="${process.env.FRONTEND_URL}/tasks/${task._id}?action=reject" 
-                           style="background: #ef4444; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 0 10px; display: inline-block;">
-                            ❌ Reject Task
-                        </a>
-                    </div>
-
-                    <div style="text-align: center; margin: 20px 0;">
-                        <a href="${process.env.FRONTEND_URL}/tasks/${task._id}" 
-                           style="color: #2563eb; text-decoration: none;">
-                            View Full Task Details →
-                        </a>
-                    </div>
-
-                    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-                    <p style="color: #6b7280; font-size: 12px; text-align: center;">
-                        This is an automated email from IMTS Task Management System.<br>
-                        Please do not reply to this email.
-                    </p>
                 </div>
             `;
 
@@ -143,12 +203,103 @@ class EmailService {
                 html: htmlContent
             };
 
-            const result = await this.transporter.sendMail(mailOptions);
+            await this.transporter.sendMail(mailOptions);
             logger.info(`Task completion email sent to ${creator.email} for task: ${task.title}`);
-            return result;
-
         } catch (error) {
             logger.error('Failed to send task completion email:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Send task approval notification email (approved/rejected)
+     * Sends to assignees after creator approves or rejects
+     */
+    async sendTaskApprovalNotification(task, assignees, approvalAction) {
+        try {
+            if (!this.transporter) {
+                throw new Error('Email transporter not initialized');
+            }
+
+            const subject = `Task ${approvalAction.toUpperCase()}: ${task.title}`;
+            const isApproved = approvalAction === 'approved';
+            
+            const htmlContent = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+                    <div style="background: ${isApproved ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #ef4444, #dc2626)'}; padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                        <h1 style="color: white; margin: 0; font-size: 28px;">${isApproved ? '✅ Task Approved' : '❌ Task Rejected'}</h1>
+                        <p style="color: #f0f0f0; margin: 10px 0 0 0; font-size: 16px;">${isApproved ? 'Congratulations!' : 'Revision Required'}</p>
+                    </div>
+                    
+                    <div style="padding: 30px;">
+                        <div style="background: #f8fafc; padding: 25px; border-radius: 10px; margin: 20px 0; border-left: 4px solid ${isApproved ? '#10b981' : '#ef4444'};">
+                            <h3 style="margin-top: 0; color: #1f2937; font-size: 20px;">📋 Task Details</h3>
+                            <p style="margin: 10px 0;"><strong>Title:</strong> ${task.title}</p>
+                            <p style="margin: 10px 0;"><strong>Description:</strong> ${task.description || 'No description'}</p>
+                            <p style="margin: 10px 0;"><strong>Priority:</strong> <span style="color: ${this.getPriorityColor(task.priority)}; font-weight: bold;">${task.priority?.toUpperCase()}</span></p>
+                            <p style="margin: 10px 0;"><strong>Status:</strong> <span style="color: ${isApproved ? '#10b981' : '#ef4444'}; font-weight: bold;">${approvalAction.toUpperCase()}</span></p>
+                            <p style="margin: 10px 0;"><strong>Decision Date:</strong> ${new Date().toLocaleDateString('en-US', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            })}</p>
+                        </div>
+
+                        <div style="background: ${isApproved ? '#ecfdf5' : '#fef2f2'}; border: 1px solid ${isApproved ? '#a7f3d0' : '#fecaca'}; border-radius: 10px; padding: 20px; margin: 25px 0;">
+                            <h3 style="margin: 0 0 10px 0; color: ${isApproved ? '#065f46' : '#991b1b'};">
+                                ${isApproved ? '🎉 Task Approved!' : '📝 Task Rejected - Action Required'}
+                            </h3>
+                            <p style="margin: 0; color: ${isApproved ? '#047857' : '#991b1b'}; line-height: 1.5;">
+                                ${isApproved 
+                                    ? 'Great work! Your task has been approved and is now marked as completed.' 
+                                    : 'Your task has been rejected and moved back to in-progress status. Please review and revise the work as needed.'}
+                            </p>
+                        </div>
+
+                        <div style="text-align: center; margin: 25px 0;">
+                            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/tasks/${task._id}" 
+                               style="background: ${isApproved ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #3b82f6, #2563eb)'}; 
+                                      color: white; 
+                                      padding: 15px 30px; 
+                                      text-decoration: none; 
+                                      border-radius: 8px; 
+                                      font-weight: bold;
+                                      font-size: 16px;
+                                      display: inline-block;
+                                      box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                                📖 View Task Details
+                            </a>
+                        </div>
+                    </div>
+
+                    <div style="background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 12px 12px;">
+                        <p style="color: #6b7280; font-size: 12px; margin: 0; line-height: 1.4;">
+                            This is an automated email from <strong>IMTS Task Management System</strong>.<br>
+                            Please do not reply to this email. For support, contact your system administrator.
+                        </p>
+                    </div>
+                </div>
+            `;
+
+            // Send to all assignees
+            for (const assignee of assignees) {
+                if (assignee.email) {
+                    const mailOptions = {
+                        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+                        to: assignee.email,
+                        subject: subject,
+                        html: htmlContent
+                    };
+
+                    await this.transporter.sendMail(mailOptions);
+                    logger.info(`Task ${approvalAction} notification sent to ${assignee.email} for task: ${task.title}`);
+                }
+            }
+        } catch (error) {
+            logger.error(`Failed to send task ${approvalAction} notification emails:`, error);
             throw error;
         }
     }
