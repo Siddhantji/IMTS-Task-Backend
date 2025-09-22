@@ -164,6 +164,42 @@ const taskSchema = new mongoose.Schema({
         notes: String // For individual notes/remarks specific to this assignee
     }],
     
+    // Overviewers - users who can view and monitor task progress but not modify
+    overviewers: [{
+        user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true
+        },
+        addedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true
+        },
+        addedAt: {
+            type: Date,
+            default: Date.now
+        },
+        permissions: {
+            canViewDetails: {
+                type: Boolean,
+                default: true
+            },
+            canViewAttachments: {
+                type: Boolean,
+                default: true
+            },
+            canViewRemarks: {
+                type: Boolean,
+                default: true
+            },
+            canViewProgress: {
+                type: Boolean,
+                default: true
+            }
+        }
+    }],
+    
     // Department and cross-department handling
     department: {
         type: mongoose.Schema.Types.ObjectId,
@@ -419,12 +455,105 @@ taskSchema.methods.updateStage = function(newStage) {
     }
 };
 
+// Overviewer management methods
+taskSchema.methods.addOverviewer = function(userId, addedBy, permissions = {}) {
+    // Check if user is already an overviewer
+    const existingOverviewer = this.overviewers.find(
+        ov => ov.user.toString() === userId.toString()
+    );
+    
+    if (existingOverviewer) {
+        throw new Error('User is already an overviewer for this task');
+    }
+    
+    // Check if user is already assigned to the task
+    const isAssigned = this.assignedTo.some(
+        assignment => assignment.user.toString() === userId.toString()
+    );
+    
+    if (isAssigned) {
+        throw new Error('Cannot add assigned user as overviewer');
+    }
+    
+    // Check if user is the task creator
+    if (this.createdBy.toString() === userId.toString()) {
+        throw new Error('Task creator already has full access');
+    }
+    
+    const defaultPermissions = {
+        canViewDetails: true,
+        canViewAttachments: true,
+        canViewRemarks: true,
+        canViewProgress: true
+    };
+    
+    this.overviewers.push({
+        user: userId,
+        addedBy: addedBy,
+        addedAt: new Date(),
+        permissions: { ...defaultPermissions, ...permissions }
+    });
+    
+    return this.save();
+};
+
+taskSchema.methods.removeOverviewer = function(userId, removedBy) {
+    const overviewerIndex = this.overviewers.findIndex(
+        ov => ov.user.toString() === userId.toString()
+    );
+    
+    if (overviewerIndex === -1) {
+        throw new Error('User is not an overviewer for this task');
+    }
+    
+    // Only assignees or the one who added the overviewer can remove them
+    const overviewer = this.overviewers[overviewerIndex];
+    const isAssignee = this.assignedTo.some(
+        assignment => assignment.user.toString() === removedBy.toString()
+    );
+    const isCreator = this.createdBy.toString() === removedBy.toString();
+    const wasAddedByRemover = overviewer.addedBy.toString() === removedBy.toString();
+    
+    if (!isAssignee && !isCreator && !wasAddedByRemover) {
+        throw new Error('Only assignees or the user who added the overviewer can remove them');
+    }
+    
+    this.overviewers.splice(overviewerIndex, 1);
+    return this.save();
+};
+
+taskSchema.methods.updateOverviewerPermissions = function(userId, permissions, updatedBy) {
+    const overviewer = this.overviewers.find(
+        ov => ov.user.toString() === userId.toString()
+    );
+    
+    if (!overviewer) {
+        throw new Error('User is not an overviewer for this task');
+    }
+    
+    // Only assignees or the one who added the overviewer can update permissions
+    const isAssignee = this.assignedTo.some(
+        assignment => assignment.user.toString() === updatedBy.toString()
+    );
+    const isCreator = this.createdBy.toString() === updatedBy.toString();
+    const wasAddedByUpdater = overviewer.addedBy.toString() === updatedBy.toString();
+    
+    if (!isAssignee && !isCreator && !wasAddedByUpdater) {
+        throw new Error('Only assignees or the user who added the overviewer can update permissions');
+    }
+    
+    overviewer.permissions = { ...overviewer.permissions, ...permissions };
+    return this.save();
+};
+
 // Static methods
 taskSchema.statics.findByUser = function(userId, role = 'assignedTo') {
     if (role === 'assignedTo') {
         return this.find({ 'assignedTo.user': userId });
     } else if (role === 'creator') {
         return this.find({ createdBy: userId });
+    } else if (role === 'overviewer') {
+        return this.find({ 'overviewers.user': userId });
     }
 };
 
