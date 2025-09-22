@@ -252,6 +252,16 @@ router.get('/dashboard-stats',
 );
 
 /**
+ * @route   GET /api/tasks/overview
+ * @desc    Get tasks where user is an overviewer
+ * @access  Private (Overviewers only)
+ */
+router.get('/overview',
+    authenticateToken,
+    taskController.getOverviewTasks
+);
+
+/**
  * @route   GET /api/tasks/:id
  * @desc    Get single task by ID
  * @access  Private
@@ -420,6 +430,91 @@ router.get('/:id/attachments/:attachmentId/view',
     param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
     handleValidationErrors,
     taskController.viewAttachmentPublic
+);
+
+// ==================== OVERVIEWER ENDPOINTS ====================
+
+/**
+ * @route   POST /api/tasks/:id/overviewers
+ * @desc    Add overviewer to a task
+ * @access  Private (Assignees only)
+ */
+router.post('/:id/overviewers',
+    authenticateToken,
+    mongoIdValidation,
+    [
+        body('userId')
+            .isMongoId()
+            .withMessage('Valid user ID is required'),
+        body('permissions.canViewDetails')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewDetails must be a boolean'),
+        body('permissions.canViewAttachments')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewAttachments must be a boolean'),
+        body('permissions.canViewRemarks')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewRemarks must be a boolean'),
+        body('permissions.canViewProgress')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewProgress must be a boolean')
+    ],
+    handleValidationErrors,
+    taskController.addOverviewer
+);
+
+/**
+ * @route   DELETE /api/tasks/:id/overviewers
+ * @desc    Remove overviewer from a task
+ * @access  Private (Assignees only)
+ */
+router.delete('/:id/overviewers',
+    authenticateToken,
+    mongoIdValidation,
+    [
+        body('userId')
+            .isMongoId()
+            .withMessage('Valid user ID is required')
+    ],
+    handleValidationErrors,
+    taskController.removeOverviewer
+);
+
+/**
+ * @route   PUT /api/tasks/:id/overviewers/permissions
+ * @desc    Update overviewer permissions
+ * @access  Private (Assignees only)
+ */
+router.put('/:id/overviewers/permissions',
+    authenticateToken,
+    mongoIdValidation,
+    [
+        body('userId')
+            .isMongoId()
+            .withMessage('Valid user ID is required'),
+        body('permissions.canViewDetails')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewDetails must be a boolean'),
+        body('permissions.canViewAttachments')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewAttachments must be a boolean'),
+        body('permissions.canViewRemarks')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewRemarks must be a boolean'),
+        body('permissions.canViewProgress')
+            .optional()
+            .isBoolean()
+            .withMessage('canViewProgress must be a boolean')
+    ],
+    handleValidationErrors,
+    taskController.updateOverviewerPermissions
 );
 
 module.exports = router;
