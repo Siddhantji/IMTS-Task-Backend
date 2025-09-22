@@ -1711,6 +1711,332 @@ const createTaskHistoryWithNotification = async (taskId, action, performedBy, ch
     }
 };
 
+/**
+ * Add overviewer to a task
+ */
+const addOverviewer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId, permissions } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'User ID is required'
+            });
+        }
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        // Check if current user is assignee or creator
+        const isAssignee = task.assignedTo.some(
+            assignment => assignment.user.toString() === req.user._id.toString()
+        );
+        const isCreator = task.createdBy.toString() === req.user._id.toString();
+
+        if (!isAssignee && !isCreator) {
+            return res.status(403).json({
+                success: false,
+                message: 'Only assignees can add overviewers to tasks'
+            });
+        }
+
+        // Verify the user exists
+        const userToAdd = await User.findById(userId);
+        if (!userToAdd) {
+            return res.status(404).json({
+                success: false,
+                message: 'User to add as overviewer not found'
+            });
+        }
+
+        await task.addOverviewer(userId, req.user._id, permissions);
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'overviewer_added',
+            req.user._id,
+            {
+                field: 'overviewers',
+                description: `Added ${userToAdd.name} as overviewer`,
+                overviewerId: userId
+            }
+        );
+
+        // Send notification to the new overviewer
+        try {
+            await Notification.createNotification({
+                type: 'task_overviewer_added',
+                recipient: userId,
+                title: `Added as overviewer: ${task.title}`,
+                message: `You have been added as an overviewer for task "${task.title}" by ${req.user.name}`,
+                priority: 'medium',
+                relatedTask: task._id,
+                createdBy: req.user._id,
+                channels: {
+                    inApp: { enabled: true },
+                    email: { enabled: false }
+                }
+            });
+        } catch (notificationError) {
+            console.error('Error creating overviewer notification:', notificationError);
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('overviewers.user', 'name email role')
+            .populate('overviewers.addedBy', 'name email role')
+            .populate('department', 'name');
+
+        logger.info(`Overviewer added: ${userToAdd.name} to task ${task.title} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Overviewer added successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Add overviewer error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to add overviewer',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Remove overviewer from a task
+ */
+const removeOverviewer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'User ID is required'
+            });
+        }
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const userToRemove = await User.findById(userId);
+        if (!userToRemove) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        await task.removeOverviewer(userId, req.user._id);
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'overviewer_removed',
+            req.user._id,
+            {
+                field: 'overviewers',
+                description: `Removed ${userToRemove.name} as overviewer`,
+                overviewerId: userId
+            }
+        );
+
+        // Send notification to the removed overviewer
+        try {
+            await Notification.createNotification({
+                type: 'task_overviewer_removed',
+                recipient: userId,
+                title: `Removed as overviewer: ${task.title}`,
+                message: `You have been removed as an overviewer for task "${task.title}" by ${req.user.name}`,
+                priority: 'low',
+                relatedTask: task._id,
+                createdBy: req.user._id,
+                channels: {
+                    inApp: { enabled: true },
+                    email: { enabled: false }
+                }
+            });
+        } catch (notificationError) {
+            console.error('Error creating overviewer removal notification:', notificationError);
+        }
+
+        const updatedTask = await Task.findById(id)
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('overviewers.user', 'name email role')
+            .populate('overviewers.addedBy', 'name email role')
+            .populate('department', 'name');
+
+        logger.info(`Overviewer removed: ${userToRemove.name} from task ${task.title} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Overviewer removed successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Remove overviewer error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to remove overviewer',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Update overviewer permissions
+ */
+const updateOverviewerPermissions = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId, permissions } = req.body;
+
+        if (!userId || !permissions) {
+            return res.status(400).json({
+                success: false,
+                message: 'User ID and permissions are required'
+            });
+        }
+
+        const task = await Task.findById(id);
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found'
+            });
+        }
+
+        const userToUpdate = await User.findById(userId);
+        if (!userToUpdate) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        await task.updateOverviewerPermissions(userId, permissions, req.user._id);
+
+        // Create history entry
+        await TaskHistory.createEntry(
+            task._id,
+            'overviewer_permissions_updated',
+            req.user._id,
+            {
+                field: 'overviewer_permissions',
+                description: `Updated permissions for overviewer ${userToUpdate.name}`,
+                overviewerId: userId,
+                newPermissions: permissions
+            }
+        );
+
+        const updatedTask = await Task.findById(id)
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('overviewers.user', 'name email role')
+            .populate('overviewers.addedBy', 'name email role')
+            .populate('department', 'name');
+
+        logger.info(`Overviewer permissions updated: ${userToUpdate.name} for task ${task.title} by ${req.user.email}`);
+
+        res.json({
+            success: true,
+            message: 'Overviewer permissions updated successfully',
+            data: { task: updatedTask }
+        });
+
+    } catch (error) {
+        logger.error('Update overviewer permissions error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to update overviewer permissions',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
+ * Get tasks where user is an overviewer
+ */
+const getOverviewTasks = async (req, res) => {
+    try {
+        const tasks = await Task.findByUser(req.user._id, 'overviewer')
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('overviewers.user', 'name email role')
+            .populate('overviewers.addedBy', 'name email role')
+            .populate('department', 'name')
+            .sort({ createdAt: -1 });
+
+        // Filter tasks based on overviewer permissions
+        const filteredTasks = tasks.map(task => {
+            const overviewer = task.overviewers.find(
+                ov => ov.user._id.toString() === req.user._id.toString()
+            );
+
+            if (!overviewer) return null;
+
+            const taskObj = task.toObject();
+
+            // Apply permission filters
+            if (!overviewer.permissions.canViewDetails) {
+                delete taskObj.description;
+            }
+            if (!overviewer.permissions.canViewAttachments) {
+                delete taskObj.attachments;
+            }
+            if (!overviewer.permissions.canViewRemarks) {
+                delete taskObj.remarks;
+            }
+            if (!overviewer.permissions.canViewProgress) {
+                // Hide detailed progress info
+                taskObj.assignedTo = taskObj.assignedTo.map(assignment => ({
+                    user: assignment.user,
+                    assignedAt: assignment.assignedAt
+                }));
+            }
+
+            return taskObj;
+        }).filter(Boolean);
+
+        res.json({
+            success: true,
+            message: 'Overview tasks retrieved successfully',
+            data: { 
+                tasks: filteredTasks,
+                count: filteredTasks.length
+            }
+        });
+
+    } catch (error) {
+        logger.error('Get overview tasks error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve overview tasks',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 module.exports = {
     createTask,
     getTasks,
@@ -1729,5 +2055,9 @@ module.exports = {
     removeAttachment,
     downloadAttachment,
     viewAttachmentPublic,
-    createTaskHistoryWithNotification
+    createTaskHistoryWithNotification,
+    addOverviewer,
+    removeOverviewer,
+    updateOverviewerPermissions,
+    getOverviewTasks
 };
