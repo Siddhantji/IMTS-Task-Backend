@@ -277,10 +277,8 @@ const getDepartmentEmployees = async (req, res) => {
         // Only add isActive filter if explicitly provided
         if (isActive !== undefined && isActive !== '') {
             filter.isActive = isActive === 'true';
-        } else {
-            // Default to active users only if no filter specified
-            filter.isActive = true;
         }
+        // Note: We don't set a default isActive filter, so both active and inactive employees are shown
 
         // Search functionality
         if (search) {
@@ -552,10 +550,188 @@ const getDepartmentReport = async (req, res) => {
     }
 };
 
+/**
+ * Get specific employee details
+ */
+const getEmployeeDetail = async (req, res) => {
+    try {
+        // Security logging
+        logger.info(`HOD Employee Detail Access Attempt:`, {
+            userId: req.user?.id,
+            userEmail: req.user?.email,
+            targetEmployeeId: req.params.employeeId,
+            timestamp: new Date().toISOString()
+        });
+
+        // Get HOD's department from authenticated user
+        const hodUser = await User.findById(req.user.id).populate('department');
+        
+        if (!hodUser || hodUser.role !== 'hod') {
+            logger.warn(`Unauthorized HOD employee detail access:`, {
+                userId: req.user?.id,
+                userEmail: req.user?.email,
+                actualRole: hodUser?.role,
+                timestamp: new Date().toISOString()
+            });
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. HOD role required.'
+            });
+        }
+
+        const departmentId = hodUser.department._id;
+        const { employeeId } = req.params;
+
+        // Find the employee and verify they belong to HOD's department
+        const employee = await User.findOne({
+            _id: employeeId,
+            department: departmentId,
+            role: { $ne: 'hod' }
+        }).select('-password -refreshTokens');
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                message: 'Employee not found in your department'
+            });
+        }
+
+        // Get task statistics for the employee
+        const totalTasks = await Task.countDocuments({
+            'assignedTo.user': employee._id
+        });
+        
+        const completedTasks = await Task.countDocuments({
+            'assignedTo.user': employee._id,
+            status: 'completed'
+        });
+        
+        const activeTasks = await Task.countDocuments({
+            'assignedTo.user': employee._id,
+            status: { $in: ['pending', 'in_progress'] }
+        });
+
+        const overdueTasks = await Task.countDocuments({
+            'assignedTo.user': employee._id,
+            status: { $in: ['pending', 'in_progress'] },
+            deadline: { $lt: new Date() }
+        });
+
+        const employeeWithStats = {
+            ...employee.toObject(),
+            taskStats: {
+                totalTasks,
+                completedTasks,
+                activeTasks,
+                overdueTasks,
+                completionRate: totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(2) : '0'
+            }
+        };
+
+        logger.info(`HOD Employee Detail Access Granted:`, {
+            hodId: hodUser._id,
+            employeeId: employee._id,
+            employeeName: employee.name,
+            departmentId: departmentId,
+            timestamp: new Date().toISOString()
+        });
+
+        res.json({
+            success: true,
+            data: employeeWithStats
+        });
+    } catch (error) {
+        logger.error('Error getting employee detail:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching employee details'
+        });
+    }
+};
+
+/**
+ * Get all tasks for a specific employee
+ */
+const getEmployeeTasks = async (req, res) => {
+    try {
+        // Security logging
+        logger.info(`HOD Employee Tasks Access Attempt:`, {
+            userId: req.user?.id,
+            userEmail: req.user?.email,
+            targetEmployeeId: req.params.employeeId,
+            timestamp: new Date().toISOString()
+        });
+
+        // Get HOD's department from authenticated user
+        const hodUser = await User.findById(req.user.id).populate('department');
+        
+        if (!hodUser || hodUser.role !== 'hod') {
+            logger.warn(`Unauthorized HOD employee tasks access:`, {
+                userId: req.user?.id,
+                userEmail: req.user?.email,
+                actualRole: hodUser?.role,
+                timestamp: new Date().toISOString()
+            });
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. HOD role required.'
+            });
+        }
+
+        const departmentId = hodUser.department._id;
+        const { employeeId } = req.params;
+
+        // Verify the employee belongs to HOD's department
+        const employee = await User.findOne({
+            _id: employeeId,
+            department: departmentId,
+            role: { $ne: 'hod' }
+        });
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                message: 'Employee not found in your department'
+            });
+        }
+
+        // Get all tasks assigned to this employee in the department
+        const tasks = await Task.find({
+            'assignedTo.user': employeeId,
+            department: departmentId
+        })
+        .populate('createdBy', 'name email')
+        .populate('assignedTo.user', 'name email')
+        .sort({ createdAt: -1 })
+        .select('title description status priority deadline createdAt stage createdBy assignedTo');
+
+        logger.info(`HOD Employee Tasks Access Granted:`, {
+            hodId: hodUser._id,
+            employeeId: employee._id,
+            tasksCount: tasks.length,
+            departmentId: departmentId,
+            timestamp: new Date().toISOString()
+        });
+
+        res.json({
+            success: true,
+            data: tasks
+        });
+    } catch (error) {
+        logger.error('Error getting employee tasks:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching employee tasks'
+        });
+    }
+};
+
 module.exports = {
     getHODDashboard,
     getDepartmentTasks,
     getDepartmentEmployees,
     toggleUserAccess,
-    getDepartmentReport
+    getDepartmentReport,
+    getEmployeeDetail,
+    getEmployeeTasks
 };
