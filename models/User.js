@@ -35,8 +35,8 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Role is required'],
         enum: {
-            values: ['employee', 'hod', 'admin'],
-            message: 'Role must be either employee, hod, or admin'
+            values: ['employee', 'hod', 'admin', 'super_admin'],
+            message: 'Role must be either employee, hod, admin, or super_admin'
         }
     },
     department: {
@@ -127,12 +127,27 @@ userSchema.methods.generateRefreshToken = function() {
 
 // Instance method to check if user can access department
 userSchema.methods.canAccessDepartment = function(departmentId) {
-    // Admin can access all departments
-    if (this.role === 'admin') return true;
+    // Super Admin and Admin can access all departments
+    if (this.role === 'super_admin' || this.role === 'admin') return true;
     // HODs can access their own department
     if (this.role === 'hod') return this.department.toString() === departmentId.toString();
     // Employees can access their own department
     return this.department.toString() === departmentId.toString();
+};
+
+// Instance method to check if user can manage users
+userSchema.methods.canManageUsers = function() {
+    return ['super_admin', 'admin', 'hod'].includes(this.role);
+};
+
+// Instance method to check if user is admin level
+userSchema.methods.isAdminLevel = function() {
+    return ['super_admin', 'admin'].includes(this.role);
+};
+
+// Instance method to check if user can view all departments
+userSchema.methods.canViewAllDepartments = function() {
+    return ['super_admin', 'admin'].includes(this.role);
 };
 
 // Static method to find by email
