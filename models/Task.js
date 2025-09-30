@@ -15,7 +15,7 @@ const remarkSchema = new mongoose.Schema({
     authorRole: {
         type: String,
         required: true,
-        enum: ['employee', 'hod', 'admin']
+        enum: ['employee', 'hod', 'admin', 'super_admin']
     },
     createdAt: {
         type: Date,
