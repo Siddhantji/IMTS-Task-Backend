@@ -24,6 +24,12 @@ const emailRoutes = require('./routes/email');
 console.log('✅ Email routes loaded');
 const { router: emailApprovalRoutes } = require('./routes/emailApproval');
 console.log('✅ Email approval routes loaded');
+const hodRoutes = require('./routes/hod');
+console.log('✅ HOD routes loaded');
+const superAdminRoutes = require('./routes/superAdmin');
+console.log('✅ Super Admin routes loaded');
+const reportRoutes = require('./routes/reports');
+console.log('✅ Report routes loaded');
 
 let notificationRoutes;
 try {
@@ -165,9 +171,20 @@ app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/email-approval', emailApprovalRoutes);
+app.use('/api/hod', hodRoutes);
+app.use('/api/super-admin', superAdminRoutes);
+app.use('/api/reports', reportRoutes);
 
 console.log('🚀 Routes mounted:');
 console.log('  - /api/auth');
+console.log('  - /api/tasks');
+console.log('  - /api/users');
+console.log('  - /api/notifications');
+console.log('  - /api/email');
+console.log('  - /api/email-approval');
+console.log('  - /api/hod');
+console.log('  - /api/super-admin');
+console.log('  - /api/reports');
 console.log('  - /api/tasks'); 
 console.log('  - /api/users');
 console.log('  - /api/notifications');
