@@ -5,7 +5,9 @@ const {
     getDepartmentTasks,
     getDepartmentEmployees,
     toggleUserAccess,
-    getDepartmentReport
+    getDepartmentReport,
+    getEmployeeDetail,
+    getEmployeeTasks
 } = require('../controllers/hodController');
 const { authenticateToken } = require('../middleware');
 
@@ -60,6 +62,20 @@ router.get('/employees', getDepartmentEmployees);
  * @body    { isActive: boolean }
  */
 router.put('/employees/:userId/access', toggleUserAccess);
+
+/**
+ * @route   GET /api/hod/employees/:employeeId
+ * @desc    Get detailed information for a specific employee in HOD's department
+ * @access  Protected (HOD only - can only view own department employees)
+ */
+router.get('/employees/:employeeId', getEmployeeDetail);
+
+/**
+ * @route   GET /api/hod/employees/:employeeId/tasks
+ * @desc    Get all tasks for a specific employee in HOD's department
+ * @access  Protected (HOD only - can only view own department employees' tasks)
+ */
+router.get('/employees/:employeeId/tasks', getEmployeeTasks);
 
 /**
  * @route   GET /api/hod/reports
