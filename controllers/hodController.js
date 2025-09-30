@@ -263,18 +263,24 @@ const getDepartmentEmployees = async (req, res) => {
             page = 1,
             limit = 10,
             search,
-            isActive = true,
+            isActive,  // Remove default value here
             sortBy = 'name',
             sortOrder = 'asc'
         } = req.query;
 
-        // Build filter query
+        // Build filter query - include all users except HODs in the department
         const filter = {
             department: departmentId,
-            role: 'employee'
+            role: { $ne: 'hod' } // Exclude HODs, include all other roles
         };
-
-        if (isActive !== undefined) filter.isActive = isActive === 'true';
+        
+        // Only add isActive filter if explicitly provided
+        if (isActive !== undefined && isActive !== '') {
+            filter.isActive = isActive === 'true';
+        } else {
+            // Default to active users only if no filter specified
+            filter.isActive = true;
+        }
 
         // Search functionality
         if (search) {
