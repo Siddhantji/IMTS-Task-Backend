@@ -7,6 +7,10 @@ const {
     toggleUserAccess,
     getDepartmentReport
 } = require('../controllers/hodController');
+const { authenticateToken } = require('../middleware');
+
+// Apply authentication middleware to all HOD routes
+router.use(authenticateToken);
 
 /**
  * @route   GET /api/hod/dashboard
