@@ -8,10 +8,28 @@ const mongoose = require('mongoose');
  */
 const getHODDashboard = async (req, res) => {
     try {
+        // Security logging
+        logger.info(`HOD Dashboard Access Attempt:`, {
+            userId: req.user?.id,
+            userEmail: req.user?.email,
+            userRole: req.user?.role,
+            userDepartment: req.user?.department,
+            timestamp: new Date().toISOString(),
+            ip: req.ip,
+            userAgent: req.get('User-Agent')
+        });
+
         // Get HOD's department from authenticated user
         const hodUser = await User.findById(req.user.id).populate('department');
         
         if (!hodUser || hodUser.role !== 'hod') {
+            logger.warn(`Unauthorized HOD access attempt:`, {
+                userId: req.user?.id,
+                userEmail: req.user?.email,
+                actualRole: hodUser?.role,
+                requiredRole: 'hod',
+                timestamp: new Date().toISOString()
+            });
             return res.status(403).json({
                 success: false,
                 message: 'Access denied. HOD role required.'
@@ -20,6 +38,14 @@ const getHODDashboard = async (req, res) => {
 
         const departmentId = hodUser.department._id;
         const department = hodUser.department;
+        
+        logger.info(`HOD Dashboard Access Granted:`, {
+            hodId: hodUser._id,
+            hodEmail: hodUser.email,
+            departmentId: departmentId,
+            departmentName: department.name,
+            timestamp: new Date().toISOString()
+        });
         if (!department) {
             return res.status(404).json({
                 success: false,
@@ -27,33 +53,31 @@ const getHODDashboard = async (req, res) => {
             });
         }
 
-        // Get department statistics
+        // Get department statistics using direct department filtering
         const totalEmployees = await User.countDocuments({
             department: departmentId,
             role: 'employee',
             isActive: true
         });
 
-        const departmentUsers = await User.find({ department: departmentId }).select('_id');
-        const userIds = departmentUsers.map(user => user._id);
-
+        // Use direct department filtering for tasks - more accurate and efficient
         const totalTasks = await Task.countDocuments({
-            'assignedTo.user': { $in: userIds }
+            department: departmentId
         });
 
         const activeTasks = await Task.countDocuments({
-            'assignedTo.user': { $in: userIds },
-            status: { $in: ['pending', 'in_progress'] }
+            department: departmentId,
+            status: { $in: ['pending', 'in_progress', 'assigned'] }
         });
 
         const completedTasks = await Task.countDocuments({
-            'assignedTo.user': { $in: userIds },
+            department: departmentId,
             status: 'completed'
         });
 
         const overdueTasks = await Task.countDocuments({
-            'assignedTo.user': { $in: userIds },
-            status: { $in: ['pending', 'in_progress'] },
+            department: departmentId,
+            status: { $in: ['pending', 'in_progress', 'assigned'] },
             deadline: { $lt: new Date() }
         });
 
@@ -85,10 +109,25 @@ const getHODDashboard = async (req, res) => {
  */
 const getDepartmentTasks = async (req, res) => {
     try {
+        // Security logging
+        logger.info(`HOD Tasks Access Attempt:`, {
+            userId: req.user?.id,
+            userEmail: req.user?.email,
+            userRole: req.user?.role,
+            filters: req.query,
+            timestamp: new Date().toISOString()
+        });
+
         // Get HOD's department from authenticated user
         const hodUser = await User.findById(req.user.id).populate('department');
         
         if (!hodUser || hodUser.role !== 'hod') {
+            logger.warn(`Unauthorized HOD tasks access:`, {
+                userId: req.user?.id,
+                userEmail: req.user?.email,
+                actualRole: hodUser?.role,
+                timestamp: new Date().toISOString()
+            });
             return res.status(403).json({
                 success: false,
                 message: 'Access denied. HOD role required.'
@@ -96,6 +135,14 @@ const getDepartmentTasks = async (req, res) => {
         }
 
         const departmentId = hodUser.department._id;
+        
+        logger.info(`HOD Tasks Access Granted:`, {
+            hodId: hodUser._id,
+            departmentId: departmentId,
+            departmentName: hodUser.department.name,
+            filters: req.query,
+            timestamp: new Date().toISOString()
+        });
         
         const {
             page = 1,
@@ -110,12 +157,9 @@ const getDepartmentTasks = async (req, res) => {
             endDate
         } = req.query;
 
-        const departmentUsers = await User.find({ department: departmentId }).select('_id');
-        const userIds = departmentUsers.map(user => user._id);
-
-        // Build filter query
+        // Build filter query - use direct department filtering
         const filter = {
-            'assignedTo.user': { $in: userIds }
+            department: departmentId
         };
 
         if (status) filter.status = status;
@@ -147,7 +191,7 @@ const getDepartmentTasks = async (req, res) => {
         const tasks = await Task.find(filter)
             .populate('assignedTo.user', 'name email')
             .populate('createdBy', 'name email')
-            .populate('overviewer', 'name email')
+            .populate('overviewers.user', 'name email')
             .select('-attachments') // Exclude large attachment data
             .sort(sortOptions)
             .skip(skip)
@@ -182,10 +226,24 @@ const getDepartmentTasks = async (req, res) => {
  */
 const getDepartmentEmployees = async (req, res) => {
     try {
+        // Security logging
+        logger.info(`HOD Employees Access Attempt:`, {
+            userId: req.user?.id,
+            userEmail: req.user?.email,
+            filters: req.query,
+            timestamp: new Date().toISOString()
+        });
+
         // Get HOD's department from authenticated user
         const hodUser = await User.findById(req.user.id).populate('department');
         
         if (!hodUser || hodUser.role !== 'hod') {
+            logger.warn(`Unauthorized HOD employees access:`, {
+                userId: req.user?.id,
+                userEmail: req.user?.email,
+                actualRole: hodUser?.role,
+                timestamp: new Date().toISOString()
+            });
             return res.status(403).json({
                 success: false,
                 message: 'Access denied. HOD role required.'
@@ -193,6 +251,13 @@ const getDepartmentEmployees = async (req, res) => {
         }
 
         const departmentId = hodUser.department._id;
+        
+        logger.info(`HOD Employees Access Granted:`, {
+            hodId: hodUser._id,
+            departmentId: departmentId,
+            departmentName: hodUser.department.name,
+            timestamp: new Date().toISOString()
+        });
         
         const {
             page = 1,
@@ -383,14 +448,12 @@ const getDepartmentReport = async (req, res) => {
             department: departmentId,
             role: 'employee' 
         }).select('_id name email');
-        
-        const userIds = departmentUsers.map(user => user._id);
 
-        // Task statistics by status
+        // Task statistics by status - use direct department filtering
         const tasksByStatus = await Task.aggregate([
             {
                 $match: {
-                    'assignedTo.user': { $in: userIds },
+                    department: departmentId,
                     ...dateFilter
                 }
             },
@@ -402,11 +465,11 @@ const getDepartmentReport = async (req, res) => {
             }
         ]);
 
-        // Task statistics by priority
+        // Task statistics by priority - use direct department filtering
         const tasksByPriority = await Task.aggregate([
             {
                 $match: {
-                    'assignedTo.user': { $in: userIds },
+                    department: departmentId,
                     ...dateFilter
                 }
             },
@@ -418,7 +481,7 @@ const getDepartmentReport = async (req, res) => {
             }
         ]);
 
-        // Employee performance
+        // Employee performance - show tasks assigned to each employee
         const employeePerformance = await Promise.all(departmentUsers.map(async (employee) => {
             const taskStats = await Task.aggregate([
                 {
@@ -439,7 +502,7 @@ const getDepartmentReport = async (req, res) => {
             const completedTasks = taskStats.find(stat => stat._id === 'completed')?.count || 0;
             const overdueTasks = await Task.countDocuments({
                 'assignedTo.user': employee._id,
-                status: { $in: ['pending', 'in_progress'] },
+                status: { $in: ['pending', 'in_progress', 'assigned'] },
                 deadline: { $lt: new Date() },
                 ...dateFilter
             });
