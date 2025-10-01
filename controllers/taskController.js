@@ -1518,15 +1518,26 @@ const downloadAttachment = async (req, res) => {
             });
         }
 
-        // Set appropriate headers for download
-        res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName}"`);
-        res.setHeader('Content-Type', attachment.mimetype);
+        // Set appropriate headers for download with proper encoding
+        const encodedFilename = encodeURIComponent(attachment.originalName);
+        const safeFilename = attachment.originalName.replace(/[^\w\s.-]/g, '_');
+        
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`);
+        res.setHeader('Content-Type', attachment.mimetype || 'application/octet-stream');
         res.setHeader('Content-Length', attachment.size);
         
         // Add CORS headers
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Content-Disposition');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+
+        // Log headers for debugging
+        console.log('Download headers set:', {
+            'Content-Disposition': res.getHeader('Content-Disposition'),
+            'Content-Type': res.getHeader('Content-Type'),
+            'Content-Length': res.getHeader('Content-Length')
+        });
 
         // Stream the file
         const fileStream = fs.createReadStream(filePath);
@@ -1604,15 +1615,25 @@ const viewAttachmentPublic = async (req, res) => {
             });
         }
 
-        // Set headers for inline viewing (especially for PDFs)
-        res.setHeader('Content-Disposition', `inline; filename="${attachment.originalName}"`);
-        res.setHeader('Content-Type', attachment.mimetype);
+        // Set headers for inline viewing (especially for PDFs) with proper encoding
+        const encodedFilename = encodeURIComponent(attachment.originalName);
+        const safeFilename = attachment.originalName.replace(/[^\w\s.-]/g, '_');
+        
+        res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`);
+        res.setHeader('Content-Type', attachment.mimetype || 'application/octet-stream');
         res.setHeader('Content-Length', attachment.size);
         
         // Add CORS headers to allow browser access
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+        // Log headers for debugging
+        console.log('View headers set:', {
+            'Content-Disposition': res.getHeader('Content-Disposition'),
+            'Content-Type': res.getHeader('Content-Type'),
+            'Content-Length': res.getHeader('Content-Length')
+        });
 
         // Stream the file
         const fileStream = fs.createReadStream(filePath);
