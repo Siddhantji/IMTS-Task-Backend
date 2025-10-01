@@ -1505,19 +1505,28 @@ const downloadAttachment = async (req, res) => {
             });
         }
 
-        const filePath = path.join(__dirname, '../', attachment.path);
+        // Build the file path correctly
+        // The attachment.path already includes "uploads/" so we just need to resolve from backend root
+        // Normalize path separators to handle both forward slashes and backslashes
+        const normalizedPath = attachment.path.replace(/\\/g, '/');
+        let filePath = path.resolve(__dirname, '../', normalizedPath);
         
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({
                 success: false,
-                message: 'File not found on server'
+                message: 'File not found on server. The file may have been moved or deleted.'
             });
         }
 
-        // Set appropriate headers
+        // Set appropriate headers for download
         res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName}"`);
         res.setHeader('Content-Type', attachment.mimetype);
         res.setHeader('Content-Length', attachment.size);
+        
+        // Add CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
         // Stream the file
         const fileStream = fs.createReadStream(filePath);
@@ -1559,12 +1568,39 @@ const viewAttachmentPublic = async (req, res) => {
             });
         }
 
-        const filePath = path.join(__dirname, '../', attachment.path);
+        // Build the file path correctly
+        // The attachment.path already includes "uploads/" so we just need to resolve from backend root
+        // Normalize path separators to handle both forward slashes and backslashes
+        const normalizedPath = attachment.path.replace(/\\/g, '/');
+        let filePath = path.resolve(__dirname, '../', normalizedPath);
+        
+        console.log('Attachment path stored:', attachment.path);
+        console.log('Trying to access file:', filePath);
+        console.log('File exists:', fs.existsSync(filePath));
         
         if (!fs.existsSync(filePath)) {
+            // Log the missing file for debugging
+            console.error(`File not found: ${filePath}`);
+            console.error(`Attachment info:`, attachment);
+            
             return res.status(404).json({
                 success: false,
-                message: 'File not found on server'
+                message: 'File not found on server. The file may have been moved or deleted.',
+                suggestions: [
+                    'Try re-uploading the file',
+                    'Contact administrator if this issue persists'
+                ],
+                debug: process.env.NODE_ENV === 'development' ? {
+                    storedPath: attachment.path,
+                    resolvedPath: filePath,
+                    attachmentInfo: {
+                        filename: attachment.filename,
+                        originalName: attachment.originalName,
+                        size: attachment.size,
+                        mimetype: attachment.mimetype,
+                        uploadedAt: attachment.uploadedAt
+                    }
+                } : undefined
             });
         }
 
