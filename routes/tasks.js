@@ -432,6 +432,18 @@ router.get('/:id/attachments/:attachmentId/view',
     taskController.viewAttachmentPublic
 );
 
+/**
+ * @route   GET /api/tasks/:id/attachments/:attachmentId/download-test
+ * @desc    Test download attachment without auth - TEMPORARY
+ * @access  Public (Testing only)
+ */
+router.get('/:id/attachments/:attachmentId/download-test',
+    mongoIdValidation,
+    param('attachmentId').isMongoId().withMessage('Invalid attachment ID'),
+    handleValidationErrors,
+    taskController.downloadAttachment
+);
+
 // ==================== OVERVIEWER ENDPOINTS ====================
 
 /**
