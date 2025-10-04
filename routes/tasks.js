@@ -13,13 +13,9 @@ const {
 // Validation rules
 const createTaskValidation = [
     body('title')
-        .trim()
-        .isLength({ min: 3, max: 200 })
-        .withMessage('Title must be between 3 and 200 characters'),
+        .trim(),
     body('description')
-        .trim()
-        .isLength({ min: 10, max: 2000 })
-        .withMessage('Description must be between 10 and 2000 characters'),
+        .trim(),
     body('deadline')
         .isISO8601()
         .withMessage('Please provide a valid deadline date')
@@ -76,14 +72,10 @@ const createTaskValidation = [
 const updateTaskValidation = [
     body('title')
         .optional()
-        .trim()
-        .isLength({ min: 3, max: 200 })
-        .withMessage('Title must be between 3 and 200 characters'),
+        .trim(),
     body('description')
         .optional()
-        .trim()
-        .isLength({ min: 10, max: 2000 })
-        .withMessage('Description must be between 10 and 2000 characters'),
+        .trim(),
     body('deadline')
         .optional()
         .isISO8601()
