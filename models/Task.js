@@ -62,13 +62,11 @@ const taskSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Task title is required'],
         trim: true,
-        maxlength: [200, 'Title cannot exceed 200 characters']
     },
     description: {
         type: String,
         required: [true, 'Task description is required'],
         trim: true,
-        maxlength: [2000, 'Description cannot exceed 2000 characters']
     },
     startDate: {
         type: Date,
