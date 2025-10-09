@@ -26,6 +26,8 @@ const { router: emailApprovalRoutes } = require('./routes/emailApproval');
 console.log('✅ Email approval routes loaded');
 const hodRoutes = require('./routes/hod');
 console.log('✅ HOD routes loaded');
+const adminRoutes = require('./routes/admin');
+console.log('✅ Admin routes loaded');
 const superAdminRoutes = require('./routes/superAdmin');
 console.log('✅ Super Admin routes loaded');
 const reportRoutes = require('./routes/reports');
@@ -172,6 +174,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/email-approval', emailApprovalRoutes);
 app.use('/api/hod', hodRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/reports', reportRoutes);
 
