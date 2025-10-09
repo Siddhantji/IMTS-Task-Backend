@@ -1,5 +1,6 @@
 const { User, Department } = require('../models');
 const { logger } = require('../utils/logger');
+const bcrypt = require('bcryptjs');
 
 /**
  * Get all users with filtering and pagination
@@ -450,6 +451,66 @@ const getDepartments = async (req, res) => {
     }
 };
 
+/**
+ * Update user password - Open API endpoint (no authentication required)
+ */
+const updatePassword = async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+
+        // Validate request
+        if (!email || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email and new password are required'
+            });
+        }
+
+        // Validate password length
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 6 characters long'
+            });
+        }
+
+        // Find user by email
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found with the provided email'
+            });
+        }
+
+        // Hash the new password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+        // Update user password
+        await User.findByIdAndUpdate(user._id, { password: hashedPassword });
+
+        logger.info(`Password updated for user: ${email}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Password updated successfully',
+            data: {
+                email: email,
+                updatedAt: new Date()
+            }
+        });
+
+    } catch (error) {
+        logger.error('Error updating password:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating password',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 module.exports = {
     getUsers,
     getUser,
@@ -459,5 +520,6 @@ module.exports = {
     getAllEmployees,
     getUsersForDropdown,
     getUserStats,
-    getDepartments
+    getDepartments,
+    updatePassword
 };
