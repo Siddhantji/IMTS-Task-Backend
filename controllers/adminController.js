@@ -266,15 +266,15 @@ const getDepartmentDetail = async (req, res) => {
             department: departmentId
         });
         
-        const activeTasks = await Task.countDocuments({
-            department: departmentId,
-            status: { $in: ['pending', 'in_progress', 'assigned'] }
-        });
+        const activeTasks = await Task.countDocuments({ 
+                        department: department._id,
+                        status: { $in: ['completed', 'approved'] }
+                    });
         
-        const completedTasks = await Task.countDocuments({
-            department: departmentId,
-            status: 'completed'
-        });
+        const completedTasks = await Task.countDocuments({ 
+                        department: department._id,
+                        status: { $in: ['completed', 'approved'] }
+                    });
         
         const overdueTasks = await Task.countDocuments({
             department: departmentId,
