@@ -58,6 +58,27 @@ router.get('/departments',
     userController.getDepartments
 );
 
+// ==================== PASSWORD UPDATE ENDPOINT (Open API) ====================
+
+/**
+ * @route   PUT /api/users/update-password
+ * @desc    Update user password - Open API endpoint
+ * @access  Public (No authentication required)
+ */
+router.put('/update-password',
+    [
+        body('email')
+            .isEmail()
+            .normalizeEmail()
+            .withMessage('Valid email is required'),
+        body('newPassword')
+            .isLength({ min: 6 })
+            .withMessage('Password must be at least 6 characters long')
+    ],
+    handleValidationErrors,
+    userController.updatePassword
+);
+
 // ==================== USER ENDPOINTS (Private) ====================
 
 /**
