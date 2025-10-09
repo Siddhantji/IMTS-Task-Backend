@@ -139,56 +139,78 @@ const getAdminDashboard = async (req, res) => {
  */
 const getAllDepartments = async (req, res) => {
     try {
+        logger.info('Admin departments request received', {
+            userId: req.user?.id,
+            userRole: req.user?.role
+        });
+
         const adminUser = await User.findById(req.user.id);
         
         if (!adminUser || adminUser.role !== 'admin') {
+            logger.warn('Unauthorized admin access attempt', {
+                userId: req.user?.id,
+                userRole: adminUser?.role
+            });
             return res.status(403).json({
                 success: false,
                 message: 'Access denied. Admin role required.'
             });
         }
 
+        logger.info('Fetching departments from database');
         const departments = await Department.find()
-            .populate('hodUser', 'name email')
+            .populate('hod', 'name email')
             .sort({ name: 1 });
+
+        logger.info(`Found ${departments.length} departments`);
 
         // Get statistics for each department
         const departmentsWithStats = await Promise.all(departments.map(async (department) => {
-            const totalUsers = await User.countDocuments({
-                department: department._id
-            });
-            
-            const activeUsers = await User.countDocuments({
-                department: department._id,
-                isActive: true
-            });
-            
-            const totalTasks = await Task.countDocuments({
-                department: department._id
-            });
-            
-            const activeTasks = await Task.countDocuments({
-                department: department._id,
-                status: { $in: ['pending', 'in_progress', 'assigned'] }
-            });
-            
-            const completedTasks = await Task.countDocuments({
-                department: department._id,
-                status: 'completed'
-            });
+            try {
+                logger.debug(`Processing stats for department: ${department.name}`);
+                
+                const [totalUsers, activeUsers, totalTasks, activeTasks, completedTasks] = await Promise.all([
+                    User.countDocuments({ department: department._id }),
+                    User.countDocuments({ department: department._id, isActive: true }),
+                    Task.countDocuments({ department: department._id }),
+                    Task.countDocuments({ 
+                        department: department._id,
+                        status: { $in: ['pending', 'in_progress', 'assigned', 'created'] }
+                    }),
+                    Task.countDocuments({ 
+                        department: department._id,
+                        status: { $in: ['completed', 'approved'] }
+                    })
+                ]);
 
-            return {
-                ...department.toObject(),
-                stats: {
-                    totalUsers,
-                    activeUsers,
-                    totalTasks,
-                    activeTasks,
-                    completedTasks,
-                    completionRate: totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(2) : 0
-                }
-            };
+                return {
+                    ...department.toObject(),
+                    stats: {
+                        totalUsers,
+                        activeUsers,
+                        totalTasks,
+                        activeTasks,
+                        completedTasks,
+                        completionRate: totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(2) : '0.00'
+                    }
+                };
+            } catch (statsError) {
+                logger.error(`Error getting stats for department ${department.name}:`, statsError);
+                return {
+                    ...department.toObject(),
+                    stats: {
+                        totalUsers: 0,
+                        activeUsers: 0,
+                        totalTasks: 0,
+                        activeTasks: 0,
+                        completedTasks: 0,
+                        completionRate: '0.00'
+                    }
+                };
+            }
         }));
+
+        logger.info(`Successfully processed ${departmentsWithStats.length} departments with stats`);
 
         res.json({
             success: true,
@@ -196,6 +218,7 @@ const getAllDepartments = async (req, res) => {
         });
     } catch (error) {
         logger.error('Error getting departments:', error);
+        logger.error('Stack trace:', error.stack);
         res.status(500).json({
             success: false,
             message: 'Server error while fetching departments'
@@ -220,7 +243,7 @@ const getDepartmentDetail = async (req, res) => {
         const { departmentId } = req.params;
         
         const department = await Department.findById(departmentId)
-            .populate('hodUser', 'name email');
+            .populate('hod', 'name email');
         
         if (!department) {
             return res.status(404).json({
