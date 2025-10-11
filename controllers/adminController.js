@@ -1,6 +1,7 @@
 const { User, Department, Task, TaskHistory } = require('../models');
 const { logger } = require('../utils/logger');
 const mongoose = require('mongoose');
+const reminderService = require('../services/reminderService');
 
 /**
  * Get Admin Dashboard Overview - All departments
@@ -848,6 +849,80 @@ const getDepartmentReport = async (req, res) => {
     }
 };
 
+/**
+ * Get reminder service status
+ */
+const getReminderServiceStatus = async (req, res) => {
+    try {
+        // Verify admin role
+        const adminUser = await User.findById(req.user.id);
+        
+        if (!adminUser || adminUser.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Admin role required.'
+            });
+        }
+
+        const status = reminderService.getStatus();
+
+        res.json({
+            success: true,
+            data: {
+                reminderService: status,
+                message: `Reminder service is ${status.initialized ? 'running' : 'stopped'}`,
+                timestamp: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        logger.error('Error getting reminder service status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while getting reminder service status'
+        });
+    }
+};
+
+/**
+ * Manually trigger approval reminders
+ */
+const triggerApprovalReminders = async (req, res) => {
+    try {
+        // Verify admin role
+        const adminUser = await User.findById(req.user.id);
+        
+        if (!adminUser || adminUser.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Admin role required.'
+            });
+        }
+
+        logger.info(`Manual approval reminder trigger requested by admin:`, {
+            adminId: adminUser._id,
+            adminEmail: adminUser.email,
+            timestamp: new Date().toISOString()
+        });
+
+        // Trigger the reminder check
+        await reminderService.triggerApprovalReminders();
+
+        res.json({
+            success: true,
+            message: 'Approval reminder check triggered successfully',
+            triggeredBy: adminUser.email,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        logger.error('Error triggering approval reminders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while triggering approval reminders'
+        });
+    }
+};
+
 module.exports = {
     getAdminDashboard,
     getAllDepartments,
@@ -856,5 +931,7 @@ module.exports = {
     getDepartmentEmployees,
     getSystemReport,
     toggleUserAccess,
-    getDepartmentReport
+    getDepartmentReport,
+    getReminderServiceStatus,
+    triggerApprovalReminders
 };
