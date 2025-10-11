@@ -22,4 +22,8 @@ router.get('/reports/system', adminController.getSystemReport);
 // User management
 router.put('/users/:userId/toggle-access', adminController.toggleUserAccess);
 
+// Reminder service management
+router.get('/reminders/status', adminController.getReminderServiceStatus);
+router.post('/reminders/trigger', adminController.triggerApprovalReminders);
+
 module.exports = router;
