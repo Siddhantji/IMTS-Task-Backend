@@ -295,6 +295,11 @@ const taskSchema = new mongoose.Schema({
         }
     }],
     
+    // Reminder tracking
+    lastReminderSent: {
+        type: Date
+    },
+    
     // Metadata
     isActive: {
         type: Boolean,
