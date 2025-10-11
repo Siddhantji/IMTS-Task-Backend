@@ -12,6 +12,9 @@ const connectDB = require('./config/database');
 const { logger } = require('./utils/logger');
 const { errorHandler, notFound, apiRateLimit } = require('./middleware');
 
+// Import services
+const reminderService = require('./services/reminderService');
+
 // Import routes
 console.log('📥 Loading routes...');
 const authRoutes = require('./routes/auth');
@@ -208,6 +211,15 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
     logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
     
+    // Initialize reminder service after server starts
+    try {
+        reminderService.init();
+        console.log('⏰ Reminder service initialized');
+    } catch (error) {
+        console.error('⏰ Failed to initialize reminder service:', error);
+        logger.error('Failed to initialize reminder service:', error);
+    }
+    
     if (process.env.NODE_ENV === 'development') {
         console.log(`🚀 Server started successfully!`);
         console.log(`📍 API Base URL: http://localhost:${PORT}/api`);
@@ -237,6 +249,13 @@ const gracefulShutdown = (signal) => {
         logger.info(`${signal} received`);
         if (err) {
             logger.error(err);
+        }
+        
+        // Stop reminder service before shutting down
+        try {
+            reminderService.stop();
+        } catch (error) {
+            console.error('Error stopping reminder service:', error);
         }
         
         server.close(() => {
