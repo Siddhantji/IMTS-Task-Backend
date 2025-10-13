@@ -255,6 +255,91 @@ const getTasks = async (req, res) => {
 };
 
 /**
+ * Get individual report - tasks assigned to current user
+ */
+const getIndividualReport = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            status,
+            priority,
+            stage,
+            search,
+            sortBy = 'createdAt',
+            sortOrder = 'desc',
+            startDate,
+            endDate
+        } = req.query;
+
+        // Build filter query - only tasks assigned to current user
+        const filter = { 
+            isActive: true,
+            'assignedTo.user': req.user._id
+        };
+
+        // Additional filters
+        if (status) filter.status = status;
+        if (priority) filter.priority = priority;
+        if (stage) filter.stage = stage;
+
+        // Date range filter
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) filter.createdAt.$gte = new Date(startDate);
+            if (endDate) filter.createdAt.$lte = new Date(endDate);
+        }
+
+        // Search functionality
+        if (search) {
+            filter.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Sort options
+        const sortOptions = {};
+        sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        const tasks = await Task.find(filter)
+            .populate('createdBy', 'name email role')
+            .populate('assignedTo.user', 'name email role')
+            .populate('department', 'name')
+            .sort(sortOptions)
+            .skip(skip)
+            .limit(parseInt(limit));
+
+        const total = await Task.countDocuments(filter);
+
+        res.json({
+            success: true,
+            data: {
+                tasks,
+                pagination: {
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(total / parseInt(limit)),
+                    totalTasks: total,
+                    hasNextPage: page * limit < total,
+                    hasPrevPage: page > 1
+                }
+            }
+        });
+
+    } catch (error) {
+        logger.error('Get individual report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get individual report',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+/**
  * Get single task by ID
  */
 const getTask = async (req, res) => {
@@ -2097,6 +2182,7 @@ const getOverviewTasks = async (req, res) => {
 module.exports = {
     createTask,
     getTasks,
+    getIndividualReport,
     getTask,
     updateTaskStatus,
     updateTaskStage,
