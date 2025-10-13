@@ -244,9 +244,21 @@ router.get('/dashboard-stats',
 );
 
 /**
+ * @route   GET /api/tasks/individual-report
+ * @desc    Get individual task report for current user
+ * @access  Private
+ */
+router.get('/individual-report',
+    authenticateToken,
+    queryValidation,
+    handleValidationErrors,
+    taskController.getIndividualReport
+);
+
+/**
  * @route   GET /api/tasks/overview
- * @desc    Get tasks where user is an overviewer
- * @access  Private (Overviewers only)
+ * @desc    Get tasks where current user is an overviewer
+ * @access  Private
  */
 router.get('/overview',
     authenticateToken,
