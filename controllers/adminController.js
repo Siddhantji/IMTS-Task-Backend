@@ -75,7 +75,7 @@ const getAdminDashboard = async (req, res) => {
             
             const deptCompletedTasks = await Task.countDocuments({
                 department: department._id,
-                status: 'completed'
+                status: { $in: ['completed', 'approved'] }
             });
             
             const deptOverdueTasks = await Task.countDocuments({
