@@ -51,7 +51,7 @@ const getAdminDashboard = async (req, res) => {
         const activeTasks = await Task.countDocuments({
             status: { $in: ['pending', 'in_progress', 'assigned'] }
         });
-        const completedTasks = await Task.countDocuments({ status: 'completed' });
+        const completedTasks = await Task.countDocuments({ status: { $in: ['completed', 'approved'] } });
         const overdueTasks = await Task.countDocuments({
             status: { $in: ['pending', 'in_progress', 'assigned'] },
             deadline: { $lt: new Date() }
