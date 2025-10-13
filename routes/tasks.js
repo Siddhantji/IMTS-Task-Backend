@@ -197,6 +197,49 @@ const queryValidation = [
         .withMessage('Invalid stage filter')
 ];
 
+const reportQueryValidation = [
+    query('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer'),
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 50000 })
+        .withMessage('Limit must be between 1 and 50000'),
+    query('status')
+        .optional()
+        .isIn(['created', 'assigned', 'in_progress', 'completed', 'approved', 'rejected', 'transferred'])
+        .withMessage('Invalid status filter'),
+    query('priority')
+        .optional()
+        .isIn(['low', 'medium', 'high', 'urgent'])
+        .withMessage('Invalid priority filter'),
+    query('stage')
+        .optional()
+        .isIn(['not_started', 'pending', 'done'])
+        .withMessage('Invalid stage filter'),
+    query('search')
+        .optional()
+        .isLength({ max: 100 })
+        .withMessage('Search term must be less than 100 characters'),
+    query('sortBy')
+        .optional()
+        .isIn(['createdAt', 'deadline', 'priority', 'title', 'status'])
+        .withMessage('Invalid sort field'),
+    query('sortOrder')
+        .optional()
+        .isIn(['asc', 'desc'])
+        .withMessage('Sort order must be asc or desc'),
+    query('startDate')
+        .optional()
+        .isISO8601()
+        .withMessage('Start date must be a valid date'),
+    query('endDate')
+        .optional()
+        .isISO8601()
+        .withMessage('End date must be a valid date')
+];
+
 /**
  * @route   POST /api/tasks
  * @desc    Create a new task
@@ -250,7 +293,7 @@ router.get('/dashboard-stats',
  */
 router.get('/individual-report',
     authenticateToken,
-    queryValidation,
+    reportQueryValidation,
     handleValidationErrors,
     taskController.getIndividualReport
 );
