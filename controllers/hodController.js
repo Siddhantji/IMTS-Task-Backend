@@ -503,7 +503,7 @@ const getDepartmentReport = async (req, res) => {
             ]);
 
             const totalTasks = taskStats.reduce((sum, stat) => sum + stat.count, 0);
-            const completedTasks = taskStats.find(stat => stat._id === 'completed')?.count || 0;
+            const completedTasks = taskStats.find(stat => stat._id === 'completed' || 'approved')?.count || 0;
             const overdueTasks = await Task.countDocuments({
                 'assignedTo.user': employee._id,
                 status: { $in: ['pending', 'in_progress', 'assigned'] },
