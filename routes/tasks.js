@@ -146,8 +146,8 @@ const updateIndividualApprovalValidation = [
 const addRemarkValidation = [
     body('text')
         .trim()
-        .isLength({ min: 1, max: 1000 })
-        .withMessage('Remark text must be between 1 and 1000 characters'),
+        .isLength({ min: 1 })
+        .withMessage('Remark text cannot be empty'),
     body('category')
         .optional()
         .isIn(['creator', 'assignee', 'general', 'auto'])
