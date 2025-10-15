@@ -2179,6 +2179,149 @@ const getOverviewTasks = async (req, res) => {
     }
 };
 
+/**
+ * Get unique task creators
+ */
+const getTaskCreators = async (req, res) => {
+    try {
+        // First check if there are any tasks
+        const taskCount = await Task.countDocuments();
+        if (taskCount === 0) {
+            return res.json({
+                success: true,
+                data: []
+            });
+        }
+
+        const creators = await Task.aggregate([
+            {
+                $match: {
+                    createdBy: { $exists: true, $ne: null }
+                }
+            },
+            {
+                $group: {
+                    _id: '$createdBy',
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'creatorInfo'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$creatorInfo',
+                    preserveNullAndEmptyArrays: false
+                }
+            },
+            {
+                $project: {
+                    _id: '$creatorInfo._id',
+                    name: '$creatorInfo.name',
+                    count: 1
+                }
+            },
+            {
+                $sort: { name: 1 }
+            }
+        ]);
+
+        res.json({
+            success: true,
+            data: creators
+        });
+    } catch (error) {
+        logger.error('Error in getTaskCreators:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch task creators',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Get unique task assignees (including group task members)
+ */
+const getTaskAssignees = async (req, res) => {
+    try {
+        // First check if there are any tasks with assignees
+        const taskCount = await Task.countDocuments({ 
+            'assignedTo.0': { $exists: true } 
+        });
+        
+        if (taskCount === 0) {
+            return res.json({
+                success: true,
+                data: []
+            });
+        }
+
+        const assignees = await Task.aggregate([
+            {
+                $match: {
+                    assignedTo: { $exists: true, $ne: [] }
+                }
+            },
+            {
+                $unwind: '$assignedTo'
+            },
+            {
+                $match: {
+                    'assignedTo.user': { $exists: true, $ne: null }
+                }
+            },
+            {
+                $group: {
+                    _id: '$assignedTo.user',
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'assigneeInfo'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$assigneeInfo',
+                    preserveNullAndEmptyArrays: false
+                }
+            },
+            {
+                $project: {
+                    _id: '$assigneeInfo._id',
+                    name: '$assigneeInfo.name',
+                    count: 1
+                }
+            },
+            {
+                $sort: { name: 1 }
+            }
+        ]);
+
+        res.json({
+            success: true,
+            data: assignees
+        });
+    } catch (error) {
+        logger.error('Error in getTaskAssignees:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch task assignees',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     createTask,
     getTasks,
@@ -2202,5 +2345,7 @@ module.exports = {
     addOverviewer,
     removeOverviewer,
     updateOverviewerPermissions,
-    getOverviewTasks
+    getOverviewTasks,
+    getTaskCreators,
+    getTaskAssignees
 };
