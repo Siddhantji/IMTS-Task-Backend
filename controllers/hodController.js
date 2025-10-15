@@ -72,7 +72,7 @@ const getHODDashboard = async (req, res) => {
 
         const completedTasks = await Task.countDocuments({
             department: departmentId,
-            status: 'completed'
+            status: { $in: ['completed', 'approved'] }
         });
 
         const overdueTasks = await Task.countDocuments({
