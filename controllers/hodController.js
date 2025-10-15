@@ -603,7 +603,7 @@ const getEmployeeDetail = async (req, res) => {
         
         const completedTasks = await Task.countDocuments({
             'assignedTo.user': employee._id,
-            status: 'completed'
+            status: { $in: ['completed', 'approved'] }
         });
         
         const activeTasks = await Task.countDocuments({
