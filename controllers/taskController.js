@@ -182,9 +182,10 @@ const getTasks = async (req, res) => {
         const filter = { isActive: true };
 
         // Department-based filtering
-        if (req.user.role !== 'hod' && req.user.role !== 'admin') {
-            filter.department = req.user.department._id;
-        } else if (department) {
+        // if (req.user.role !== 'hod' && req.user.role !== 'admin') {
+        //     filter.department = req.user.department._id;
+        // } else 
+        if (department) {
             filter.department = department;
         }
 
@@ -204,13 +205,12 @@ const getTasks = async (req, res) => {
         }
 
         // Role-based filtering
-        if (req.user.role === 'employee') {
+        
             // Employees can see tasks assigned to them or created by them
             filter.$or = [
                 { 'assignedTo.user': req.user._id },
                 { createdBy: req.user._id }
             ];
-        }
         // HODs and admins can see all tasks in their scope (already handled above)
 
         // Pagination
