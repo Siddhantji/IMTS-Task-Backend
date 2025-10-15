@@ -309,6 +309,26 @@ router.get('/overview',
 );
 
 /**
+ * @route   GET /api/tasks/creators
+ * @desc    Get unique task creators for filter dropdown
+ * @access  Private
+ */
+router.get('/creators',
+    authenticateToken,
+    taskController.getTaskCreators
+);
+
+/**
+ * @route   GET /api/tasks/assignees
+ * @desc    Get unique task assignees for filter dropdown (including group task members)
+ * @access  Private
+ */
+router.get('/assignees',
+    authenticateToken,
+    taskController.getTaskAssignees
+);
+
+/**
  * @route   GET /api/tasks/:id
  * @desc    Get single task by ID
  * @access  Private
