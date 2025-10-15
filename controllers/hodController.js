@@ -206,7 +206,7 @@ const getDepartmentTasks = async (req, res) => {
                 pagination: {
                     currentPage: parseInt(page),
                     totalPages: Math.ceil(totalTasks / parseInt(limit)),
-                    totalTasks,
+                    totalItems: totalTasks,
                     hasNextPage: skip + tasks.length < totalTasks,
                     hasPrevPage: page > 1
                 }
